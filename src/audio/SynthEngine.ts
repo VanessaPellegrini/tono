@@ -11,6 +11,10 @@ export class SynthEngine {
   private currentNotes: string[] = [];
   private initialized = false;
 
+  isReady(): boolean {
+    return this.initialized;
+  }
+
   async init(): Promise<void> {
     if (this.initialized) return;
     await toneStart();
@@ -46,7 +50,9 @@ export class SynthEngine {
 
     this.currentChord = name;
     if (sustain) {
-      this.stopChord();
+      this.currentNotes.forEach((note) => {
+        try { this.sampler.triggerRelease(note, toneNow()); } catch {}
+      });
       this.currentNotes = chord.notes;
       chord.notes.forEach((note, i) => {
         this.sampler.triggerAttack(note, toneNow() + i * 0.016, 0.9 - i * 0.05);

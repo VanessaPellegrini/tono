@@ -21,8 +21,16 @@ let gamepadManager: GamepadManager;
 let handTracker: HandTracker | null = null;
 let strumStart: { x: number; y: number; fired: boolean } | null = null;
 let debugRafId: number | null = null;
-const debugEnabled = new URLSearchParams(window.location.search).has('debug');
+const debugEnabled = true;
 let inputMode: 'joystick' | 'webcam' = 'joystick';
+
+async function ensureSynthReady(): Promise<void> {
+  try {
+    await synth.init();
+  } catch (error) {
+    console.warn('Audio initialization failed:', error);
+  }
+}
 
 function handleInput(event: InputEvent): void {
   switch (event.type) {
@@ -31,8 +39,15 @@ function handleInput(event: InputEvent): void {
       renderer.setCurrentChordName(event.chord);
       break;
     case 'chord-play':
-      synth.playChord(event.chord, event.sustain ?? false);
-      renderer.triggerFlash(event.chord);
+      if (synth.isReady()) {
+        synth.playChord(event.chord, event.sustain ?? false);
+        renderer.triggerFlash(event.chord);
+      } else {
+        void ensureSynthReady().then(() => {
+          synth.playChord(event.chord, event.sustain ?? false);
+          renderer.triggerFlash(event.chord);
+        });
+      }
       break;
     case 'chord-stop':
       synth.stopChord();
@@ -44,8 +59,10 @@ function strumCurrentChord(): void {
   const chord = renderer.getCurrentChordName();
   if (!chord) return;
 
-  synth.playChord(chord);
-  renderer.triggerFlash(chord);
+  void ensureSynthReady().then(() => {
+    synth.playChord(chord);
+    renderer.triggerFlash(chord);
+  });
 }
 
 function renderHandDebug(hands: HandDebugInfo[]): void {
@@ -53,7 +70,7 @@ function renderHandDebug(hands: HandDebugInfo[]): void {
   const lines = hands.map((h) => {
     const zone = h.zone !== null ? ROOT_NAMES[h.zone] : '—';
     return [
-      `[wheel ${h.wheel}] state:${h.state} src:${h.source} conf:${h.confidence.toFixed(2)}`,
+      `[wheel ${h.wheel}] state:${h.state} src:${h.source} fist:${h.fist ? 'yes' : 'no'} conf:${h.confidence.toFixed(2)}`,
       `  raw:    (${h.rawX.toFixed(3)}, ${h.rawY.toFixed(3)})`,
       `  smooth: (${h.smoothX.toFixed(3)}, ${h.smoothY.toFixed(3)})`,
       `  zone:${zone} chord:${h.chord ?? '—'}`,
@@ -71,6 +88,7 @@ function setActiveMode(mode: 'joystick' | 'webcam'): void {
 }
 
 async function enableWebcamMode(): Promise<void> {
+  await ensureSynthReady();
   if (!handTracker) {
     handTracker = new HandTracker(webcam, {
       onChordSelect: (chord, index, _wheel) => inputRouter.handleHandChordSelect(chord, index),
@@ -125,8 +143,8 @@ function startDebugPolling(): void {
   debugRafId = requestAnimationFrame(tick);
 }
 
-async function initApp(): Promise<void> {
-  await synth.init();
+function initApp(): void {
+  void ensureSynthReady();
   renderer = new CanvasRenderer(canvas, songManager);
   renderer.setInputMode('joystick');
   gamepadManager = new GamepadManager({
@@ -171,11 +189,13 @@ async function initApp(): Promise<void> {
   setActiveMode('joystick');
 
   btnJoystick.addEventListener('click', () => {
+    void ensureSynthReady();
     enableJoystickMode();
   });
 
   btnWebcam.addEventListener('click', async () => {
     try {
+      void ensureSynthReady();
       await enableWebcamMode();
     } catch {
       document.body.classList.remove('webcam-mode');
@@ -184,6 +204,7 @@ async function initApp(): Promise<void> {
   });
 
   canvas.addEventListener('pointerdown', (event) => {
+    void ensureSynthReady();
     strumStart = { x: event.clientX, y: event.clientY, fired: false };
     canvas.setPointerCapture(event.pointerId);
   });

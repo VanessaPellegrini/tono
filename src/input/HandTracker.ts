@@ -1,4 +1,4 @@
-import { ROOT_NAMES } from '../data/chords';
+import { ROOT_NAMES, formatRootWithAccidental } from '../data/chords';
 
 type HandState = 'idle' | 'selecting' | 'sustaining';
 type TrackingSource = 'index' | 'fingers' | 'palm';
@@ -16,8 +16,10 @@ type TrackedHand = {
   confirmedChord: string | null;
   confirmedIndex: number | null;
   pendingZone: number | null;
-  pendingZoneStart: number;
   lostFrames: number;
+  fistDetected: boolean;
+  fistFrames: number;
+  accidental: -1 | 0 | 1;
 };
 
 export type HandDebugInfo = {
@@ -31,6 +33,7 @@ export type HandDebugInfo = {
   state: HandState;
   confidence: number;
   source: TrackingSource;
+  fist: boolean;
 };
 
 export type HandPointerState = {
@@ -51,12 +54,12 @@ export type HandCallbacks = {
 
 const SMOOTHING_ALPHA_INDEX = 0.2;
 const SMOOTHING_ALPHA_FINGERS = 0.35;
-const DWELL_MS = 220;
+
 const CONFIDENCE_THRESHOLD = 0.6;
 const MAX_LOST_FRAMES = 4;
 const INNER_RADIUS = 0.15;
 const OUTER_RADIUS = 0.34;
-const SUSTAIN_EXIT_RADIUS = OUTER_RADIUS + 0.08;
+
 const WHEEL_CENTERS = [
   { x: 0.266, y: 0.5 },
   { x: 0.734, y: 0.5 },
@@ -65,8 +68,12 @@ const WHEEL_CENTERS = [
 const INDEX_TIP = 8;
 const INDEX_MCP = 5;
 const FINGERTIP_INDICES = [8, 12, 16, 20];
+const TIP_INDICES = [4, 8, 12, 16, 20];
+const MCP_INDICES = [2, 5, 9, 13, 17];
 const BLEND_LOW = 0.5;
 const BLEND_HIGH = 0.7;
+const FIST_THRESHOLD = 0.09;
+const FIST_CONFIRM_FRAMES = 3;
 
 function landmarkPos(landmarks: Array<{ x: number; y: number }>, indices: number[]): { x: number; y: number } {
   let sumX = 0;
@@ -82,6 +89,16 @@ function isOccluded(landmarks: Array<{ z?: number }>): boolean {
   const tipZ = landmarks[INDEX_TIP].z ?? 0;
   const mcpZ = landmarks[INDEX_MCP].z ?? 0;
   return tipZ > mcpZ + 0.02;
+}
+
+function isFist(landmarks: Array<{ x: number; y: number }>): boolean {
+  let totalDist = 0;
+  for (let i = 0; i < TIP_INDICES.length; i++) {
+    const tip = landmarks[TIP_INDICES[i]];
+    const mcp = landmarks[MCP_INDICES[i]];
+    totalDist += Math.hypot(tip.x - mcp.x, tip.y - mcp.y);
+  }
+  return (totalDist / TIP_INDICES.length) < FIST_THRESHOLD;
 }
 
 function resolveTrackingPoint(landmarks: Array<{ x: number; y: number; z?: number; visibility?: number }>): { pos: { x: number; y: number }; source: TrackingSource } {
@@ -135,8 +152,10 @@ export class HandTracker {
       confirmedChord: null,
       confirmedIndex: null,
       pendingZone: null,
-      pendingZoneStart: 0,
       lostFrames: 0,
+      fistDetected: false,
+      fistFrames: 0,
+      accidental: 0,
     };
   }
 
@@ -200,8 +219,6 @@ export class HandTracker {
   };
 
   private onResults(results: any): void {
-    const now = performance.now();
-
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       for (let i = 0; i < 2; i++) {
         const hand = this.hands[i];
@@ -232,14 +249,10 @@ export class HandTracker {
       const det = detected[d];
       if (det.score < CONFIDENCE_THRESHOLD) continue;
 
-      let wheelIndex = -1;
-      if (det.x < 0.5) {
-        wheelIndex = assigned[0] ? -1 : 0;
-      } else {
-        wheelIndex = assigned[1] ? -1 : 1;
-      }
+      const preferredWheel = det.x < 0.5 ? 0 : 1;
+      let wheelIndex = assigned[preferredWheel] ? 1 - preferredWheel : preferredWheel;
+      if (assigned[wheelIndex]) continue;
 
-      if (wheelIndex === -1) continue;
       assigned[wheelIndex] = true;
 
       const hand = this.hands[wheelIndex];
@@ -260,7 +273,8 @@ export class HandTracker {
       hand.confidence = det.score;
       hand.lostFrames = 0;
 
-      this.processHandState(wheelIndex, now);
+      this.syncRightHandAccidental(wheelIndex, det.landmarks);
+      this.processHandState(wheelIndex);
     }
 
     for (let i = 0; i < 2; i++) {
@@ -279,57 +293,76 @@ export class HandTracker {
     this.emitDebug();
   }
 
-  private processHandState(wheelIndex: number, now: number): void {
+  private syncRightHandAccidental(wheelIndex: number, landmarks: Array<{ x: number; y: number }>): void {
+    if (wheelIndex !== 1) return;
+
+    const hand = this.hands[wheelIndex];
+    const closed = isFist(landmarks);
+    hand.fistFrames = Math.max(0, Math.min(FIST_CONFIRM_FRAMES, hand.fistFrames + (closed ? 1 : -1)));
+
+    const nextFistDetected = hand.fistFrames >= FIST_CONFIRM_FRAMES;
+    const nextAccidental: -1 | 1 = nextFistDetected ? -1 : 1;
+    const accidentalChanged = hand.accidental !== nextAccidental;
+
+    hand.fistDetected = nextFistDetected;
+    hand.accidental = nextAccidental;
+
+    if (accidentalChanged) {
+      this.refreshCurrentWheelChord(wheelIndex);
+    }
+  }
+
+  private refreshCurrentWheelChord(wheelIndex: number): void {
+    const hand = this.hands[wheelIndex];
+    if (hand.state !== 'sustaining' || hand.currentZone === null) return;
+
+    const nextChord = this.resolveChordForZone(wheelIndex, hand.currentZone, hand);
+    if (nextChord === hand.confirmedChord) return;
+
+    const previousChord = hand.confirmedChord;
+    if (previousChord) {
+      this.callbacks.onStrumEnd(previousChord, wheelIndex);
+    }
+    hand.confirmedChord = nextChord;
+    this.callbacks.onChordSelect(nextChord, hand.currentZone, wheelIndex);
+    this.callbacks.onStrumStart(nextChord, wheelIndex);
+  }
+
+  private resolveChordForZone(wheelIndex: number, zone: number, hand: TrackedHand): string {
+    const root = ROOT_NAMES[zone];
+    if (wheelIndex === 1) {
+      return formatRootWithAccidental(root, hand.accidental);
+    }
+    return root;
+  }
+
+  private processHandState(wheelIndex: number): void {
     const hand = this.hands[wheelIndex];
     const center = WHEEL_CENTERS[wheelIndex];
     const dx = hand.smoothX - center.x;
     const dy = hand.smoothY - center.y;
     const distance = Math.hypot(dx, dy);
+    const insideRing = distance >= INNER_RADIUS && distance <= OUTER_RADIUS;
+
+    const angle = Math.atan2(dy, dx);
+    const normalized = ((angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    const currentZone = Math.min(Math.floor(normalized * ROOT_NAMES.length), ROOT_NAMES.length - 1);
 
     if (hand.state === 'idle') {
-      if (distance >= INNER_RADIUS && distance <= OUTER_RADIUS) {
-        hand.state = 'selecting';
-        hand.pendingZone = null;
-        hand.pendingZoneStart = now;
-      }
-      return;
-    }
-
-    if (hand.state === 'selecting') {
-      if (distance < INNER_RADIUS || distance > OUTER_RADIUS) {
-        hand.state = 'idle';
-        hand.pendingZone = null;
-        return;
-      }
-
-      const angle = Math.atan2(dy, dx);
-      const normalized = ((angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
-      const newZone = Math.min(Math.floor(normalized * ROOT_NAMES.length), ROOT_NAMES.length - 1);
-
-      if (hand.pendingZone === null || hand.pendingZone !== newZone) {
-        hand.pendingZone = newZone;
-        hand.pendingZoneStart = now;
-      }
-
-      const dwell = now - hand.pendingZoneStart;
-      if (dwell >= DWELL_MS && hand.confirmedChord !== ROOT_NAMES[newZone]) {
-        const prevChord = hand.confirmedChord;
-        hand.currentZone = newZone;
-        hand.confirmedChord = ROOT_NAMES[newZone];
-        hand.confirmedIndex = newZone;
+      if (insideRing) {
+        const chord = this.resolveChordForZone(wheelIndex, currentZone, hand);
         hand.state = 'sustaining';
-
-        if (prevChord) {
-          this.callbacks.onStrumEnd(prevChord, wheelIndex);
-        }
-        this.callbacks.onChordSelect(ROOT_NAMES[newZone], newZone, wheelIndex);
-        this.callbacks.onStrumStart(ROOT_NAMES[newZone], wheelIndex);
+        hand.currentZone = currentZone;
+        hand.confirmedChord = chord;
+        hand.confirmedIndex = currentZone;
+        this.callbacks.onChordSelect(chord, currentZone, wheelIndex);
+        this.callbacks.onStrumStart(chord, wheelIndex);
       }
       return;
     }
 
     if (hand.state === 'sustaining') {
-      if (distance < INNER_RADIUS) {
+      if (!insideRing) {
         hand.state = 'idle';
         const chord = hand.confirmedChord;
         if (chord) {
@@ -338,31 +371,25 @@ export class HandTracker {
         hand.confirmedChord = null;
         hand.confirmedIndex = null;
         hand.currentZone = null;
-        hand.pendingZone = null;
         return;
       }
 
-      if (distance > SUSTAIN_EXIT_RADIUS) {
-        hand.state = 'selecting';
-        const chord = hand.confirmedChord;
-        if (chord) {
-          this.callbacks.onStrumEnd(chord, wheelIndex);
+      if (currentZone !== hand.currentZone) {
+        const prevChord = hand.confirmedChord;
+        const newChord = this.resolveChordForZone(wheelIndex, currentZone, hand);
+
+        if (prevChord && prevChord !== newChord) {
+          this.callbacks.onStrumEnd(prevChord, wheelIndex);
         }
-        hand.confirmedChord = null;
-        hand.confirmedIndex = null;
-        hand.pendingZone = null;
-        hand.pendingZoneStart = now;
-        return;
-      }
 
-      const angle = Math.atan2(dy, dx);
-      const normalized = ((angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
-      const newZone = Math.min(Math.floor(normalized * ROOT_NAMES.length), ROOT_NAMES.length - 1);
+        hand.currentZone = currentZone;
+        hand.confirmedChord = newChord;
+        hand.confirmedIndex = currentZone;
 
-      if (newZone !== hand.currentZone) {
-        hand.state = 'selecting';
-        hand.pendingZone = newZone;
-        hand.pendingZoneStart = now;
+        if (prevChord !== newChord) {
+          this.callbacks.onChordSelect(newChord, currentZone, wheelIndex);
+          this.callbacks.onStrumStart(newChord, wheelIndex);
+        }
       }
     }
   }
@@ -399,6 +426,7 @@ export class HandTracker {
       state: hand.state,
       confidence: hand.confidence,
       source: hand.source,
+      fist: hand.fistDetected,
     }));
     this.callbacks.onDebug(infos);
   }
