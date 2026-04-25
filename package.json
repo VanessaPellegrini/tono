@@ -13,6 +13,7 @@
     "vite": "^8.0.10"
   },
   "dependencies": {
+    "@mediapipe/hands": "^0.4.1675469240",
     "tone": "^15.1.22"
   }
 }

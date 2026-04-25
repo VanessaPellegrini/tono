@@ -1,0 +1,169 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0a0a;
+  color: #f7f7f4;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+#canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+#webcam {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  width: 160px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  z-index: 10;
+  display: none;
+}
+
+#overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  background: #0a0a0a;
+}
+
+#overlay h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+
+#overlay p {
+  color: rgba(255,255,255,0.4);
+  font-size: 1rem;
+  margin-bottom: 2rem;
+}
+
+#start-btn {
+  background: rgba(227, 59, 54, 0.15);
+  border: 1px solid rgba(227, 59, 54, 0.4);
+  color: #f7f7f4;
+  padding: 12px 40px;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#start-btn:hover {
+  background: rgba(227, 59, 54, 0.25);
+  border-color: #e33b36;
+}
+
+#ui {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+#controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+#mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  padding: 3px;
+}
+
+#mode-toggle button {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  padding: 6px 16px;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#mode-toggle button.active {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.9);
+}
+
+#song-select {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+#song-select button {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#song-select button:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+}
+
+#song-select button.active {
+  background: rgba(227, 59, 54, 0.15);
+  border-color: rgba(227, 59, 54, 0.4);
+  color: #f7f7f4;
+}
+
+#btn-play-song {
+  background: rgba(227, 59, 54, 0.2) !important;
+  border-color: rgba(227, 59, 54, 0.5) !important;
+}
+
+#input-toggle button {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.4);
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#input-toggle button:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+}
