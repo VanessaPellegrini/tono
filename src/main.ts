@@ -1,26 +1,28 @@
 import './style.css';
 import { SynthEngine } from './audio/SynthEngine';
-import { GamepadManager, type GamepadDebugState } from './input/GamepadManager';
+import { GamepadManager } from './input/GamepadManager';
+import { HandTracker, type HandDebugInfo } from './input/HandTracker';
 import { InputRouter, type InputEvent } from './input/InputRouter';
 import { SongManager } from './song/SongManager';
 import { CanvasRenderer } from './render/CanvasRenderer';
+import { ROOT_NAMES } from './data/chords';
 
 const synth = new SynthEngine();
 const songManager = new SongManager();
 const inputRouter = new InputRouter();
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
-const overlay = document.getElementById('overlay')!;
-const ui = document.getElementById('ui')!;
+const webcam = document.getElementById('webcam') as HTMLVideoElement;
 const debugPanel = document.getElementById('debug-panel') as HTMLDivElement;
-const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
+const btnJoystick = document.getElementById('btn-joystick') as HTMLButtonElement;
+const btnWebcam = document.getElementById('btn-webcam') as HTMLButtonElement;
 
 let renderer: CanvasRenderer;
 let gamepadManager: GamepadManager;
+let handTracker: HandTracker | null = null;
 let strumStart: { x: number; y: number; fired: boolean } | null = null;
 let debugRafId: number | null = null;
-
-// UI elements
-const btnFree = document.getElementById('btn-free') as HTMLButtonElement;
+const debugEnabled = new URLSearchParams(window.location.search).has('debug');
+let inputMode: 'joystick' | 'webcam' = 'joystick';
 
 function handleInput(event: InputEvent): void {
   switch (event.type) {
@@ -46,23 +48,54 @@ function strumCurrentChord(): void {
   renderer.triggerFlash(chord);
 }
 
-function renderDebug(state: GamepadDebugState): void {
-  const buttons = state.buttons
-    .map((pressed, index) => `${index}:${pressed ? '1' : '0'}`)
-    .join(' ');
-  const axes = state.axes.map((value, index) => `${index}:${value.toFixed(2)}`).join(' ');
+function renderHandDebug(hands: HandDebugInfo[]): void {
+  if (!debugEnabled) return;
+  const lines = hands.map((h) => {
+    const zone = h.zone !== null ? ROOT_NAMES[h.zone] : '—';
+    return [
+      `[wheel ${h.wheel}] state:${h.state} src:${h.source} conf:${h.confidence.toFixed(2)}`,
+      `  raw:    (${h.rawX.toFixed(3)}, ${h.rawY.toFixed(3)})`,
+      `  smooth: (${h.smoothX.toFixed(3)}, ${h.smoothY.toFixed(3)})`,
+      `  zone:${zone} chord:${h.chord ?? '—'}`,
+    ].join('\n');
+  });
+  debugPanel.textContent = lines.join('\n');
+}
 
-  debugPanel.textContent = [
-    `chord: ${state.chord}`,
-    `index: ${state.chordIndex}`,
-    `quality: ${state.quality}${state.sharp ? ' #' : ''}`,
-    `rsHolding: ${state.rsHolding ? 'yes' : 'no'}`,
-    `axes: ${axes}`,
-    `buttons: ${buttons}`,
-  ].join('\n');
+function setActiveMode(mode: 'joystick' | 'webcam'): void {
+  inputMode = mode;
+  btnJoystick.classList.toggle('active', mode === 'joystick');
+  btnWebcam.classList.toggle('active', mode === 'webcam');
+  inputRouter.setGamepadActive(mode === 'joystick');
+  renderer.setInputMode(mode);
+}
+
+async function enableWebcamMode(): Promise<void> {
+  if (!handTracker) {
+    handTracker = new HandTracker(webcam, {
+      onChordSelect: (chord, index, _wheel) => inputRouter.handleHandChordSelect(chord, index),
+      onStrumStart: (chord, _wheel) => inputRouter.handleHandStrumStart(chord),
+      onStrumEnd: (chord, _wheel) => inputRouter.handleHandStrumEnd(chord),
+      onHandMove: (states) => renderer.setHandPointers(states),
+      onDebug: renderHandDebug,
+    });
+  }
+
+  await handTracker.start();
+  document.body.classList.add('webcam-mode');
+  setActiveMode('webcam');
+}
+
+function enableJoystickMode(): void {
+  handTracker?.stop();
+  renderer.setHandPointers([]);
+  document.body.classList.remove('webcam-mode');
+  setActiveMode('joystick');
 }
 
 function startDebugPolling(): void {
+  if (!debugEnabled) return;
+
   const tick = (): void => {
     const gamepads = navigator.getGamepads();
     const gp = Array.from(gamepads).find((pad) => pad !== null);
@@ -82,7 +115,7 @@ function startDebugPolling(): void {
       `axes: ${axes.map((value, index) => `${index}:${value}`).join(' ')}`,
       `buttons: ${buttons.map((pressed, index) => `${index}:${pressed ? '1' : '0'}`).join(' ')}`,
       `rs: ${axes[2] ?? 0}, ${axes[3] ?? 0}`,
-      `lt: ${axes[4] ?? 0} rt: ${axes[5] ?? 0}`,
+      `l2/r2 axes: ${axes[4] ?? 0} ${axes[5] ?? 0}`,
     ].join('\n');
 
     debugRafId = requestAnimationFrame(tick);
@@ -92,26 +125,62 @@ function startDebugPolling(): void {
   debugRafId = requestAnimationFrame(tick);
 }
 
-// Start button
-startBtn.addEventListener('click', async () => {
+async function initApp(): Promise<void> {
   await synth.init();
   renderer = new CanvasRenderer(canvas, songManager);
+  renderer.setInputMode('joystick');
   gamepadManager = new GamepadManager({
-    onChordSelect: (chord, index) => inputRouter.handleChordSelect(chord, index),
-    onStrum: (chord) => inputRouter.handleStrum(chord),
-    onStrumHoldStart: (chord) => inputRouter.handleStrumHoldStart(chord),
-    onStrumHoldEnd: (chord) => inputRouter.handleStrumHoldEnd(chord),
-    onDebug: renderDebug,
+    onChordSelect: (chord, index) => {
+      if (inputMode !== 'joystick') return;
+      inputRouter.handleChordSelect(chord, index);
+    },
+    onStrum: (chord) => {
+      if (inputMode !== 'joystick') return;
+      inputRouter.handleStrum(chord);
+    },
+    onStrumHoldStart: (chord) => {
+      if (inputMode !== 'joystick') return;
+      inputRouter.handleStrumHoldStart(chord);
+    },
+    onStrumHoldEnd: (chord) => {
+      if (inputMode !== 'joystick') return;
+      inputRouter.handleStrumHoldEnd(chord);
+    },
+    onDebug: (state) => {
+      if (inputMode !== 'joystick') return;
+      if (!debugEnabled) return;
+      const buttons = state.buttons
+        .map((pressed, index) => `${index}:${pressed ? '1' : '0'}`)
+        .join(' ');
+      const axes = state.axes.map((value, index) => `${index}:${value.toFixed(2)}`).join(' ');
+
+      debugPanel.textContent = [
+        `chord: ${state.chord}`,
+        `index: ${state.chordIndex}`,
+        `quality: ${state.quality}${state.sharp ? ' accidental' : ''}`,
+        `rsHolding: ${state.rsHolding ? 'yes' : 'no'}`,
+        `rs: ${state.rsX.toFixed(2)}, ${state.rsY.toFixed(2)} mag:${state.rsMagnitude.toFixed(2)} src:${state.rsSource}`,
+        `axes: ${axes}`,
+        `buttons: ${buttons}`,
+      ].join('\n');
+    },
   });
   gamepadManager.start();
   inputRouter.connectGamepad();
   inputRouter.on(handleInput);
+  setActiveMode('joystick');
 
-  btnFree.addEventListener('click', () => {
-    songManager.stop();
-    synth.stopChord();
-    renderer.setMode('free');
-    btnFree.classList.add('active');
+  btnJoystick.addEventListener('click', () => {
+    enableJoystickMode();
+  });
+
+  btnWebcam.addEventListener('click', async () => {
+    try {
+      await enableWebcamMode();
+    } catch {
+      document.body.classList.remove('webcam-mode');
+      setActiveMode('joystick');
+    }
   });
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -142,11 +211,11 @@ startBtn.addEventListener('click', async () => {
 
   // Listen for gamepad connection
   window.addEventListener('gamepadconnected', () => {
-    inputRouter.setGamepadActive(true);
+    if (inputMode === 'joystick') inputRouter.setGamepadActive(true);
   });
 
-  overlay.style.display = 'none';
-  ui.style.display = 'flex';
-  debugPanel.style.display = 'block';
+  if (debugEnabled) debugPanel.style.display = 'block';
   startDebugPolling();
-});
+}
+
+void initApp();
