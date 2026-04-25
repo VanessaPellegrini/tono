@@ -57,6 +57,18 @@ export class InputRouter {
     }
   }
 
+  handleHandStrumStart(chord: string): void {
+    if (!this.gamepadActive) {
+      this.emit({ type: 'chord-play', chord, sustain: true });
+    }
+  }
+
+  handleHandStrumEnd(chord: string): void {
+    if (!this.gamepadActive) {
+      this.emit({ type: 'chord-stop', chord });
+    }
+  }
+
   setGamepadActive(active: boolean): void {
     this.gamepadActive = active;
   }
