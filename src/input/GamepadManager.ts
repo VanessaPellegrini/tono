@@ -1,4 +1,9 @@
-import { ROOT_NAMES, formatChordName, raiseHalfStep, type ChordQuality } from '../data/chords';
+import {
+  ROOT_NAMES,
+  formatChordName,
+  formatRootWithAccidental,
+  type ChordQuality,
+} from '../data/chords';
 
 export type GamepadCallbacks = {
   onChordSelect: (chord: string, index: number) => void;
@@ -14,6 +19,10 @@ export type GamepadDebugState = {
   quality: ChordQuality;
   sharp: boolean;
   rsHolding: boolean;
+  rsX: number;
+  rsY: number;
+  rsMagnitude: number;
+  rsSource: string;
   axes: number[];
   buttons: boolean[];
 };
@@ -23,13 +32,15 @@ export class GamepadManager {
   private active = false;
   private currentChordIndex = 0;
   private currentQuality: ChordQuality = 'major';
-  private currentSharp = false;
-  private prevAxes: number[] = [];
+  private currentAccidental: -1 | 0 | 1 = 0;
+  private prevAxes: number[] = []; 
   private rsHolding = false;
+  private rsSource = 'axes[2]/axes[3]';
   private rafId: number | null = null;
   private readonly deadzone = 0.35;
   private readonly triggerThreshold = 0.5;
-  private readonly stickThreshold = 0.7;
+  private readonly stickThreshold = 0.4;
+  private readonly releaseThreshold = 0.25;
 
   constructor(callbacks: GamepadCallbacks) {
     this.callbacks = callbacks;
@@ -74,9 +85,13 @@ export class GamepadManager {
 
     const buttons = Array.from(gp.buttons).map((b) => b.pressed || b.value >= this.triggerThreshold);
 
-    const nextSharp = buttons[6] || (gp.axes[4] ?? 0) > this.triggerThreshold;
-    if (nextSharp !== this.currentSharp) {
-      this.currentSharp = nextSharp;
+    const nextAccidental: -1 | 0 | 1 = buttons[6]
+      ? -1
+      : buttons[7] || (gp.axes[5] ?? 0) > this.triggerThreshold
+        ? 1
+        : 0;
+    if (nextAccidental !== this.currentAccidental) {
+      this.currentAccidental = nextAccidental;
       this.emitCurrentChord();
     }
 
@@ -87,10 +102,8 @@ export class GamepadManager {
     }
 
     // Right stick (RS) hold → strum on release
-    const rsX = gp.axes[2] ?? 0;
-    const rsY = gp.axes[3] ?? 0;
-    const prevRsX = this.prevAxes[2] ?? 0;
-    const prevRsY = this.prevAxes[3] ?? 0;
+    const { x: rsX, y: rsY, source: rsSource } = this.readRightStick(gp);
+    const { x: prevRsX, y: prevRsY } = this.readRightStickFromAxes(this.prevAxes);
     const rsMagnitude = Math.hypot(rsX, rsY);
     const prevRsMagnitude = Math.hypot(prevRsX, prevRsY);
 
@@ -99,17 +112,23 @@ export class GamepadManager {
       this.callbacks.onStrumHoldStart(this.currentChord());
     }
 
-    if (this.rsHolding && rsMagnitude <= this.stickThreshold && prevRsMagnitude > this.stickThreshold) {
+    if (this.rsHolding && rsMagnitude <= this.releaseThreshold && prevRsMagnitude > this.releaseThreshold) {
       this.callbacks.onStrumHoldEnd(this.currentChord());
       this.rsHolding = false;
     }
+
+    this.rsSource = rsSource;
 
     this.callbacks.onDebug?.({
       chord: this.currentChord(),
       chordIndex: this.currentChordIndex,
       quality: this.currentQuality,
-      sharp: this.currentSharp,
+      sharp: this.currentAccidental !== 0,
       rsHolding: this.rsHolding,
+      rsX,
+      rsY,
+      rsMagnitude,
+      rsSource: this.rsSource,
       axes: gp.axes.slice(),
       buttons,
     });
@@ -120,24 +139,40 @@ export class GamepadManager {
   private resolveQuality(buttons: boolean[]): ChordQuality {
     const l1 = buttons[4];
     const r1 = buttons[5];
-    const r2 = buttons[7];
 
-    if (l1) return 'seventh';
-    if (r1) return 'suspended';
-    if (r2) return 'minor';
+    if (l1) return 'minor';
+    if (r1) return 'seventh';
     return 'major';
   }
 
   private emitCurrentChord(): void {
     const baseRoot = ROOT_NAMES[this.currentChordIndex];
-    const root = this.currentSharp ? raiseHalfStep(baseRoot) : baseRoot;
-    this.callbacks.onChordSelect(formatChordName(root, this.currentQuality), this.currentChordIndex);
+    const displayRoot = formatRootWithAccidental(baseRoot, this.currentAccidental);
+    this.callbacks.onChordSelect(formatChordName(displayRoot, this.currentQuality), this.currentChordIndex);
   }
 
   private currentChord(): string {
     const baseRoot = ROOT_NAMES[this.currentChordIndex];
-    const root = this.currentSharp ? raiseHalfStep(baseRoot) : baseRoot;
-    return formatChordName(root, this.currentQuality);
+    const displayRoot = formatRootWithAccidental(baseRoot, this.currentAccidental);
+    return formatChordName(displayRoot, this.currentQuality);
+  }
+
+  private readRightStick(gp: Gamepad): { x: number; y: number; source: string } {
+    const pairA = { x: gp.axes[2] ?? 0, y: gp.axes[3] ?? 0, source: 'axes[2]/axes[3]' };
+    const pairB = { x: gp.axes[4] ?? 0, y: gp.axes[5] ?? 0, source: 'axes[4]/axes[5]' };
+    const magA = Math.hypot(pairA.x, pairA.y);
+    const magB = Math.hypot(pairB.x, pairB.y);
+
+    return magB > magA ? pairB : pairA;
+  }
+
+  private readRightStickFromAxes(axes: number[]): { x: number; y: number } {
+    const pairA = { x: axes[2] ?? 0, y: axes[3] ?? 0 };
+    const pairB = { x: axes[4] ?? 0, y: axes[5] ?? 0 };
+    const magA = Math.hypot(pairA.x, pairA.y);
+    const magB = Math.hypot(pairB.x, pairB.y);
+
+    return magB > magA ? pairB : pairA;
   }
 
   getCurrentChordIndex(): number {
