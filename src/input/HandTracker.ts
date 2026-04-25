@@ -1,4 +1,4 @@
-const CHORD_NAMES = ['Am', 'F', 'C', 'G', 'D', 'Em'];
+import { CHORD_NAMES } from '../data/chords';
 
 export type HandCallbacks = {
   onChordSelect: (chord: string, index: number) => void;

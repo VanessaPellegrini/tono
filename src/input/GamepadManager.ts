@@ -1,16 +1,24 @@
-const CHORD_NAMES = ['Am', 'F', 'C', 'G', 'D', 'Em'];
+import { ROOT_NAMES, formatChordName, raiseHalfStep, type ChordQuality } from '../data/chords';
 
 export type GamepadCallbacks = {
   onChordSelect: (chord: string, index: number) => void;
   onStrum: (chord: string) => void;
+  onStrumHoldStart: (chord: string) => void;
+  onStrumHoldEnd: (chord: string) => void;
 };
 
 export class GamepadManager {
   private callbacks: GamepadCallbacks;
   private active = false;
   private currentChordIndex = 0;
-  private prevButtons: boolean[] = [];
+  private currentQuality: ChordQuality = 'major';
+  private currentSharp = false;
+  private prevAxes: number[] = [];
+  private rsHolding = false;
   private rafId: number | null = null;
+  private readonly deadzone = 0.35;
+  private readonly triggerThreshold = 0.5;
+  private readonly stickThreshold = 0.7;
 
   constructor(callbacks: GamepadCallbacks) {
     this.callbacks = callbacks;
@@ -39,48 +47,76 @@ export class GamepadManager {
   };
 
   private processGamepad(gp: Gamepad): void {
-    // Left stick X (axis 0) → chord selection
-    const axisX = gp.axes[0]; // -1 to 1
-    if (axisX !== 0) {
-      const normalized = (axisX + 1) / 2; // 0 to 1
-      const index = Math.min(Math.floor(normalized * CHORD_NAMES.length), CHORD_NAMES.length - 1);
+    // Left stick 2D angle → chord selection around the wheel
+    const axisX = gp.axes[0] ?? 0;
+    const axisY = gp.axes[1] ?? 0;
+    const magnitude = Math.hypot(axisX, axisY);
+    if (magnitude > this.deadzone) {
+      const angle = Math.atan2(axisY, axisX);
+      const normalized = ((angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+      const index = Math.min(Math.floor(normalized * ROOT_NAMES.length), ROOT_NAMES.length - 1);
       if (index !== this.currentChordIndex) {
         this.currentChordIndex = index;
-        this.callbacks.onChordSelect(CHORD_NAMES[index], index);
+        this.emitCurrentChord();
       }
     }
 
-    // L1 (index 4) / R1 (index 5) → strum
-    const buttons = Array.from(gp.buttons).map((b) => b.pressed);
+    const buttons = Array.from(gp.buttons).map((b) => b.pressed || b.value >= this.triggerThreshold);
 
-    if (buttons[4] && !this.prevButtons[4]) {
-      this.strum(gp);
-    }
-    if (buttons[5] && !this.prevButtons[5]) {
-      this.strum(gp);
+    const nextSharp = buttons[6] || (gp.axes[4] ?? 0) > this.triggerThreshold;
+    if (nextSharp !== this.currentSharp) {
+      this.currentSharp = nextSharp;
+      this.emitCurrentChord();
     }
 
-    this.prevButtons = buttons;
+    const nextQuality = this.resolveQuality(buttons);
+    if (nextQuality !== this.currentQuality) {
+      this.currentQuality = nextQuality;
+      this.emitCurrentChord();
+    }
+
+    // Right stick (RS) hold → strum on release
+    const rsX = gp.axes[2] ?? 0;
+    const rsY = gp.axes[3] ?? 0;
+    const prevRsX = this.prevAxes[2] ?? 0;
+    const prevRsY = this.prevAxes[3] ?? 0;
+    const rsMagnitude = Math.hypot(rsX, rsY);
+    const prevRsMagnitude = Math.hypot(prevRsX, prevRsY);
+
+    if (rsMagnitude > this.stickThreshold && prevRsMagnitude <= this.stickThreshold) {
+      this.rsHolding = true;
+      this.callbacks.onStrumHoldStart(this.currentChord());
+    }
+
+    if (this.rsHolding && rsMagnitude <= this.stickThreshold && prevRsMagnitude > this.stickThreshold) {
+      this.callbacks.onStrumHoldEnd(this.currentChord());
+      this.rsHolding = false;
+    }
+
+    this.prevAxes = gp.axes.slice();
   }
 
-  private strum(gp: Gamepad): void {
-    const chord = CHORD_NAMES[this.currentChordIndex];
-    this.callbacks.onStrum(chord);
+  private resolveQuality(buttons: boolean[]): ChordQuality {
+    const l1 = buttons[4];
+    const r1 = buttons[5];
+    const r2 = buttons[7];
 
-    // Vibration
-    if (gp.vibrationActuator) {
-      try {
-        const va = (gp as any).vibrationActuator;
-        if (va && va.playEffect) {
-          va.playEffect('strong-rumble', {
-            startDelay: 0,
-            duration: 100,
-            weakMagnitude: 0.5,
-            strongMagnitude: 0.3,
-          });
-        }
-      } catch {}
-    }
+    if (l1) return 'seventh';
+    if (r1) return 'suspended';
+    if (r2) return 'minor';
+    return 'major';
+  }
+
+  private emitCurrentChord(): void {
+    const baseRoot = ROOT_NAMES[this.currentChordIndex];
+    const root = this.currentSharp ? raiseHalfStep(baseRoot) : baseRoot;
+    this.callbacks.onChordSelect(formatChordName(root, this.currentQuality), this.currentChordIndex);
+  }
+
+  private currentChord(): string {
+    const baseRoot = ROOT_NAMES[this.currentChordIndex];
+    const root = this.currentSharp ? raiseHalfStep(baseRoot) : baseRoot;
+    return formatChordName(root, this.currentQuality);
   }
 
   getCurrentChordIndex(): number {

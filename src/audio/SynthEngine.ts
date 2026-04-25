@@ -1,59 +1,69 @@
-import { PluckSynth, Reverb, Gain, start as toneStart } from 'tone';
-
-const CHORDS: Record<string, number[]> = {
-  Am: [220, 261.63, 329.63],
-  F: [174.61, 220, 261.63],
-  C: [261.63, 329.63, 392],
-  G: [196, 246.94, 293.66],
-  D: [293.66, 369.99, 440],
-  Em: [164.81, 196, 246.94],
-};
+import { Compressor, Filter, Gain, Reverb, Sampler, now as toneNow, start as toneStart } from 'tone';
+import { ROOT_NAMES, getChordInfoByName } from '../data/chords';
 
 export class SynthEngine {
-  private synths: PluckSynth[] = [];
+  private sampler!: Sampler;
   private reverb!: Reverb;
   private gain!: Gain;
+  private filter!: Filter;
+  private compressor!: Compressor;
   private currentChord: string | null = null;
+  private currentNotes: string[] = [];
   private initialized = false;
 
   async init(): Promise<void> {
     if (this.initialized) return;
     await toneStart();
 
-    this.reverb = new Reverb({ decay: 2.5, wet: 0.3 }).toDestination();
-    this.gain = new Gain(0.8).connect(this.reverb);
+    this.reverb = new Reverb({ decay: 1.7, wet: 0.14 }).toDestination();
+    this.compressor = new Compressor({ threshold: -26, ratio: 2.2, attack: 0.005, release: 0.2 });
+    this.filter = new Filter({ type: 'lowpass', frequency: 2500, rolloff: -24 });
+    this.gain = new Gain(0.95).connect(this.filter);
+    this.filter.connect(this.compressor);
+    this.compressor.connect(this.reverb);
 
-    for (let i = 0; i < 6; i++) {
-      const synth = new PluckSynth({
-        attackNoise: 1.5,
-        dampening: 4000,
-        resonance: 0.95,
-      }).connect(this.gain);
-      this.synths.push(synth);
-    }
+    this.sampler = new Sampler({
+      urls: {
+        E2: 'guitar_LowEstring1.mp3',
+        A2: 'guitar_Astring.mp3',
+        D3: 'guitar_Dstring.mp3',
+        G3: 'guitar_Gstring.mp3',
+        B3: 'guitar_Bstring.mp3',
+        E4: 'guitar_highEstring.mp3',
+      },
+      baseUrl: 'https://tonejs.github.io/audio/berklee/',
+      release: 1.8,
+      onload: () => undefined,
+    }).connect(this.gain);
 
     this.initialized = true;
   }
 
-  playChord(name: string): void {
+  playChord(name: string, sustain = false): void {
     if (!this.initialized) return;
-    const notes = CHORDS[name];
-    if (!notes) return;
+    const chord = getChordInfoByName(name);
+    if (!chord) return;
 
-    this.stopChord();
     this.currentChord = name;
+    if (sustain) {
+      this.stopChord();
+      this.currentNotes = chord.notes;
+      chord.notes.forEach((note, i) => {
+        this.sampler.triggerAttack(note, toneNow() + i * 0.016, 0.9 - i * 0.05);
+      });
+      return;
+    }
 
-    notes.forEach((freq, i) => {
-      if (this.synths[i]) {
-        this.synths[i].triggerAttack(freq);
-      }
+    chord.notes.forEach((note, i) => {
+      this.sampler.triggerAttackRelease(note, 0.18, toneNow() + i * 0.016, 0.9 - i * 0.05);
     });
   }
 
   stopChord(): void {
-    this.synths.forEach((s) => {
-      try { s.triggerRelease(); } catch {}
+    this.currentNotes.forEach((note) => {
+      try { this.sampler.triggerRelease(note); } catch {}
     });
+    this.currentNotes = [];
     this.currentChord = null;
   }
 
@@ -62,12 +72,14 @@ export class SynthEngine {
   }
 
   getAvailableChords(): string[] {
-    return Object.keys(CHORDS);
+    return ROOT_NAMES;
   }
 
   dispose(): void {
-    this.synths.forEach((s) => s.dispose());
+    this.sampler?.dispose();
     this.reverb?.dispose();
     this.gain?.dispose();
+    this.filter?.dispose();
+    this.compressor?.dispose();
   }
 }

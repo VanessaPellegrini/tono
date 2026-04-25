@@ -2,6 +2,7 @@ export type InputEvent = {
   type: 'chord-select' | 'chord-play' | 'chord-stop';
   chord: string;
   chordIndex?: number;
+  sustain?: boolean;
 };
 
 type Listener = (event: InputEvent) => void;
@@ -32,7 +33,15 @@ export class InputRouter {
   }
 
   handleStrum(chord: string): void {
-    this.emit({ type: 'chord-play', chord });
+    this.emit({ type: 'chord-play', chord, sustain: false });
+  }
+
+  handleStrumHoldStart(chord: string): void {
+    this.emit({ type: 'chord-play', chord, sustain: true });
+  }
+
+  handleStrumHoldEnd(chord: string): void {
+    this.emit({ type: 'chord-stop', chord });
   }
 
   // Called by HandTracker
