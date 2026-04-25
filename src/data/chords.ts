@@ -4,7 +4,7 @@ export type NoteName = (typeof NOTE_ORDER)[number];
 export type ChordQuality = 'major' | 'minor' | 'seventh' | 'suspended';
 
 export type ChordInfo = {
-  root: NoteName;
+  root: string;
   quality: ChordQuality;
   name: string;
   label: string;
@@ -22,6 +22,20 @@ export const QUALITY_SUFFIX: Record<ChordQuality, string> = {
 };
 
 const NOTE_INDEX = new Map<NoteName, number>(NOTE_ORDER.map((note, index) => [note, index]));
+const FLAT_EQUIVALENTS: Record<NoteName, string> = {
+  C: 'B',
+  'C#': 'C',
+  D: 'Db',
+  'D#': 'D',
+  E: 'Eb',
+  F: 'E',
+  'F#': 'F',
+  G: 'Gb',
+  'G#': 'G',
+  A: 'Ab',
+  'A#': 'A',
+  B: 'Bb',
+};
 
 function transpose(note: string, semitones: number): string {
   const match = note.match(/^([A-G]#?)(-?\d+)$/);
@@ -44,6 +58,23 @@ export function raiseHalfStep(note: NoteName): NoteName {
   return NOTE_ORDER[(index + 1) % NOTE_ORDER.length];
 }
 
+export function lowerHalfStep(note: NoteName): NoteName {
+  const index = NOTE_INDEX.get(note) ?? 0;
+  return NOTE_ORDER[(index - 1 + NOTE_ORDER.length) % NOTE_ORDER.length];
+}
+
+export function formatRootWithAccidental(root: NoteName, accidental: -1 | 0 | 1): string {
+  if (accidental === -1) return FLAT_EQUIVALENTS[root];
+  if (accidental === 1) return raiseHalfStep(root);
+  return root;
+}
+
+export function resolveRootNote(root: NoteName, accidental: -1 | 0 | 1): NoteName {
+  if (accidental === -1) return lowerHalfStep(root);
+  if (accidental === 1) return raiseHalfStep(root);
+  return root;
+}
+
 function buildVoicing(root: NoteName, quality: ChordQuality): string[] {
   const rootNote = `${root}3`;
   const third = transpose(rootNote, quality === 'minor' ? 3 : 4);
@@ -64,25 +95,36 @@ function buildVoicing(root: NoteName, quality: ChordQuality): string[] {
   }
 }
 
-export function formatChordName(root: NoteName, quality: ChordQuality): string {
+export function formatChordName(root: string, quality: ChordQuality): string {
   return `${root}${QUALITY_SUFFIX[quality]}`;
 }
 
-export function buildChord(root: NoteName, quality: ChordQuality): ChordInfo {
+export function buildChord(root: string, quality: ChordQuality, noteRoot?: NoteName): ChordInfo {
+  const resolvedRoot = noteRoot ?? (root as NoteName);
   return {
     root,
     quality,
     name: formatChordName(root, quality),
     label: `${root} ${quality}`,
-    notes: buildVoicing(root, quality),
+    notes: buildVoicing(resolvedRoot, quality),
   };
 }
 
 export function getChordInfoByName(name: string): ChordInfo | null {
-  const root = NOTE_ORDER.find((note) => name.startsWith(note));
-  if (!root) return null;
+  const rootMatch = [
+    ...NOTE_ORDER,
+    'Bb',
+    'Db',
+    'Eb',
+    'Gb',
+    'Ab',
+  ].sort((a, b) => b.length - a.length).find((note) => name.startsWith(note));
+  if (!rootMatch) return null;
 
-  const suffix = name.slice(root.length);
+  const normalizedRoot = ({ Bb: 'A#', Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#' } as const)[rootMatch as 'Bb' | 'Db' | 'Eb' | 'Gb' | 'Ab'] ?? rootMatch;
+  const root = normalizedRoot as NoteName;
+
+  const suffix = name.slice(rootMatch.length);
   const quality = (Object.entries(QUALITY_SUFFIX).find(([, value]) => value === suffix)?.[0] ?? 'major') as ChordQuality;
-  return buildChord(root, quality);
+  return buildChord(rootMatch, quality, root);
 }
