@@ -1,5 +1,12 @@
 import type { SongManager } from '../song/SongManager';
 import { ROOT_NAMES } from '../data/chords';
+import type { HandPointerState } from '../input/HandTracker';
+
+const SOURCE_COLORS: Record<string, { stroke: string; fill: string }> = {
+  index:   { stroke: 'rgba(34,197,94,0.92)',  fill: 'rgba(34,197,94,0.18)' },
+  fingers: { stroke: 'rgba(234,179,8,0.92)',  fill: 'rgba(234,179,8,0.18)' },
+  palm:    { stroke: 'rgba(227,59,54,0.92)',  fill: 'rgba(227,59,54,0.18)' },
+};
 
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
@@ -12,6 +19,8 @@ export class CanvasRenderer {
   private pulse = 0;
   private particles: { x: number; y: number; vx: number; vy: number; life: number; color: string }[] = [];
   private mode: 'free' | 'story' = 'free';
+  private inputMode: 'joystick' | 'webcam' = 'joystick';
+  private handPointers: HandPointerState[] = [];
 
   constructor(canvas: HTMLCanvasElement, songManager: SongManager) {
     this.canvas = canvas;
@@ -36,7 +45,7 @@ export class CanvasRenderer {
   }
 
   triggerFlash(chord?: string): void {
-    this.flashAlpha = 0.4;
+    this.flashAlpha = 0.22;
     this.flashChord = chord ?? null;
     this.pulse = 1;
     this.spawnParticles();
@@ -44,6 +53,14 @@ export class CanvasRenderer {
 
   setMode(mode: 'free' | 'story'): void {
     this.mode = mode;
+  }
+
+  setInputMode(mode: 'joystick' | 'webcam'): void {
+    this.inputMode = mode;
+  }
+
+  setHandPointers(states: HandPointerState[]): void {
+    this.handPointers = states;
   }
 
   getCurrentChordName(): string | null {
@@ -81,42 +98,39 @@ export class CanvasRenderer {
     const wheelRadius = wheelSize * 0.5;
 
     // Background
-    const bg = ctx.createRadialGradient(w * 0.42, h * 0.38, 30, w * 0.42, h * 0.38, Math.max(w, h));
-    bg.addColorStop(0, '#111417');
-    bg.addColorStop(0.55, '#0a0d10');
-    bg.addColorStop(1, '#050607');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
-
-    // Subtle grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < w; x += 60) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-    for (let y = 0; y < h; y += 60) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-
-    // Flash effect
-    if (this.flashAlpha > 0) {
-      ctx.fillStyle = `rgba(227, 59, 54, ${this.flashAlpha})`;
+    if (this.inputMode === 'webcam') {
+      ctx.fillStyle = 'rgba(3, 5, 6, 0.38)';
       ctx.fillRect(0, 0, w, h);
-      this.flashAlpha *= 0.92;
-      if (this.flashAlpha < 0.01) this.flashAlpha = 0;
+    } else {
+      const bg = ctx.createRadialGradient(w * 0.42, h * 0.38, 30, w * 0.42, h * 0.38, Math.max(w, h));
+      bg.addColorStop(0, '#111417');
+      bg.addColorStop(0.55, '#0a0d10');
+      bg.addColorStop(1, '#050607');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      // Subtle grid lines
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < w; x += 60) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y < h; y += 60) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
     }
 
     if (this.pulse > 0) {
       ctx.save();
-      ctx.globalAlpha = this.pulse * 0.18;
+      ctx.globalAlpha = this.pulse * 0.2;
       ctx.strokeStyle = '#f2eadc';
-      ctx.lineWidth = 2 + this.pulse * 3;
+      ctx.lineWidth = 2 + this.pulse * 2.5;
       ctx.beginPath();
       ctx.arc(wheelX, wheelY, wheelRadius + 12 + this.pulse * 8, 0, Math.PI * 2);
       ctx.stroke();
@@ -136,16 +150,6 @@ export class CanvasRenderer {
     ctx.font = `700 ${Math.min(w * 0.22, 190)}px Georgia, serif`;
     ctx.fillStyle = 'rgba(255,248,238,0.08)';
     ctx.fillText(currentChord || '...', w / 2, h * 0.26);
-
-    // Subtle chord halo
-    ctx.save();
-    ctx.globalAlpha = 0.12;
-    ctx.strokeStyle = '#e33b36';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(w * 0.34, h * 0.38, Math.min(w, h) * 0.18, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
 
     // Song info (story mode)
     if (this.mode === 'story' && this.songManager.isPlaying()) {
@@ -172,35 +176,70 @@ export class CanvasRenderer {
       ctx.fillRect(barX, barY, barW * progress, barH);
     }
 
-    // Radial chord wheel
-    this.drawChordWheel(ctx, wheelX, wheelY, wheelRadius, currentChord);
+    if (this.inputMode === 'webcam') {
+      ctx.clearRect(0, 0, w, h);
+      const leftX = w * 0.279;
+      const rightX = w * 0.721;
+      const centerY = h * 0.5;
+      const wheelRadiusWebcam = Math.min(w, h) * 0.19;
 
-    // Particles
-    this.particles = this.particles.filter((p) => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.02;
-      p.life -= 0.015;
+      this.drawChordWheel(ctx, leftX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(0, leftX, centerY, wheelRadiusWebcam));
+      this.drawChordWheel(ctx, rightX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(1, rightX, centerY, wheelRadiusWebcam));
 
-      if (p.life <= 0) return false;
+      this.handPointers.filter((hand) => hand.visible).forEach((hand) => {
+        const px = hand.x * w;
+        const py = hand.y * h;
+        const colors = SOURCE_COLORS[hand.source] ?? SOURCE_COLORS.palm;
+        ctx.save();
+        ctx.strokeStyle = colors.stroke;
+        ctx.fillStyle = colors.fill;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff7f3';
+        ctx.fill();
+        ctx.restore();
+      });
+    } else {
+      // Radial chord wheel
+      this.drawChordWheel(ctx, wheelX, wheelY, wheelRadius, currentChord, this.selectedChordIndex);
+    }
 
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 2 * p.life, 0, Math.PI * 2);
-      ctx.fillStyle = p.color.replace(')', `,${p.life})`).replace('rgb', 'rgba').replace('#', '');
-      // Simple approach for hex colors
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle = p.color;
-      ctx.fill();
-      ctx.globalAlpha = 1;
+    if (this.inputMode !== 'webcam') {
+      this.particles = this.particles.filter((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.02;
+        p.life -= 0.015;
 
-      return true;
-    });
+        if (p.life <= 0) return false;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2 * p.life, 0, Math.PI * 2);
+        ctx.globalAlpha = p.life * 0.45;
+        ctx.fillStyle = p.color;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        return true;
+      });
+    }
 
     // Instructions
     ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
     ctx.textAlign = 'center';
-    ctx.fillText('LS = root · L2 = # · R2 = m · RS hold = sustain', w / 2, h - 30);
+    ctx.fillText(
+      this.inputMode === 'webcam'
+        ? 'point at a note on either wheel · stay on it to sound'
+        : 'LS = chord · L2/R2 = b/# · L1/R1 = m/7 · RS hold = sustain',
+      w / 2,
+      h - 30,
+    );
 
     requestAnimationFrame(this.render);
   };
@@ -211,6 +250,7 @@ export class CanvasRenderer {
     cy: number,
     radius: number,
     currentChord: string | null,
+    selectedIndex = this.selectedChordIndex,
   ): void {
     const wedgeAngle = (Math.PI * 2) / ROOT_NAMES.length;
     const start = -Math.PI / 2;
@@ -218,6 +258,18 @@ export class CanvasRenderer {
 
     ctx.save();
     ctx.translate(cx, cy);
+
+    if (this.flashAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = this.flashAlpha;
+      ctx.fillStyle = 'rgba(227,59,54,0.24)';
+      ctx.beginPath();
+      ctx.arc(0, 0, radius + 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      this.flashAlpha *= 0.9;
+      if (this.flashAlpha < 0.01) this.flashAlpha = 0;
+    }
 
     // Outer ring
     const ring = ctx.createRadialGradient(0, 0, radius * 0.15, 0, 0, radius);
@@ -231,7 +283,7 @@ export class CanvasRenderer {
     ROOT_NAMES.forEach((root, index) => {
       const angle = start + index * wedgeAngle;
       const mid = angle + wedgeAngle / 2;
-      const isSelected = index === this.selectedChordIndex;
+      const isSelected = index === selectedIndex;
       const isActive = activeRoot === root;
       const inner = radius * 0.33;
 
@@ -291,7 +343,7 @@ export class CanvasRenderer {
       ctx.restore();
     });
 
-    // Inner strum core
+    // Inner wheel core
     const core = ctx.createRadialGradient(0, 0, 2, 0, 0, radius * 0.36);
     core.addColorStop(0, 'rgba(0,0,0,0.96)');
     core.addColorStop(1, 'rgba(0,0,0,0.72)');
@@ -306,22 +358,14 @@ export class CanvasRenderer {
     ctx.arc(0, 0, radius * 0.36, 0, Math.PI * 2);
     ctx.stroke();
 
-    for (let i = -2; i <= 2; i++) {
-      const x = i * 5;
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    for (let i = -1; i <= 1; i++) {
+      const x = i * 8;
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
       ctx.beginPath();
-      ctx.moveTo(x, -radius * 0.18);
-      ctx.lineTo(x, radius * 0.18);
+      ctx.moveTo(x, -radius * 0.14);
+      ctx.lineTo(x, radius * 0.14);
       ctx.stroke();
     }
-
-    // Center label and hint
-    ctx.fillStyle = 'rgba(255,255,255,0.68)';
-    ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText('STRUM', 0, radius * 0.02);
-    ctx.fillStyle = 'rgba(255,255,255,0.26)';
-    ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText('swipe', 0, radius * 0.16);
 
     // Footer navigation
     ctx.restore();
@@ -329,11 +373,6 @@ export class CanvasRenderer {
     const navY = cy + radius + 42;
     const navX = cx - 42;
     ctx.save();
-    ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.86)';
-    ctx.fillText('L1', navX - 10, navY);
-    ctx.fillText('R1', navX + 84, navY);
-
     for (let i = 0; i < ROOT_NAMES.length; i++) {
       const dotX = navX + 24 + i * 12;
       ctx.beginPath();
@@ -344,10 +383,10 @@ export class CanvasRenderer {
 
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText('wheel', navX + 36, navY + 13);
+    ctx.fillText('6-chord wheel', navX + 36, navY + 13);
     ctx.restore();
 
-    if (this.flashChord) {
+    if (this.flashChord && this.inputMode !== 'webcam') {
       ctx.save();
       ctx.globalAlpha = 0.5;
       ctx.fillStyle = '#fff7f3';
@@ -355,5 +394,26 @@ export class CanvasRenderer {
       ctx.fillText(this.flashChord, cx, cy + radius + 18);
       ctx.restore();
     }
+  }
+
+  private getSelectionForWheel(
+    wheel: number,
+    cx: number,
+    cy: number,
+    radius: number,
+  ): number {
+    const hand = this.handPointers.find((item) => item.visible && item.wheel === wheel);
+    if (!hand) return -1;
+
+    const x = hand.x * this.canvas.width;
+    const y = hand.y * this.canvas.height;
+    const dx = x - cx;
+    const dy = y - cy;
+    const distance = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx);
+    const normalized = ((angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    const index = Math.min(Math.floor(normalized * ROOT_NAMES.length), ROOT_NAMES.length - 1);
+
+    return distance >= radius * 0.55 && distance <= radius * 0.95 ? index : -1;
   }
 }
