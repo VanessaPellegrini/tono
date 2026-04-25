@@ -23,92 +23,60 @@ body {
   touch-action: none;
 }
 
-#overlay {
+#webcam {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 20;
-  background:
-    radial-gradient(circle at 50% 35%, rgba(227, 59, 54, 0.12), transparent 24%),
-    linear-gradient(180deg, rgba(12, 14, 16, 0.98), rgba(5, 6, 7, 0.98));
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: #020304;
+  z-index: 0;
+  display: none;
 }
 
-#overlay h1 {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 3.2rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin-bottom: 0.5rem;
+body.webcam-mode #webcam {
+  display: block;
 }
 
-#overlay p {
-  color: rgba(255,255,255,0.4);
-  font-size: 1rem;
-  margin-bottom: 2rem;
-}
-
-#start-btn {
-  background: rgba(227, 59, 54, 0.16);
-  border: 1px solid rgba(227, 59, 54, 0.42);
-  color: #f7f7f4;
-  padding: 12px 40px;
-  font-size: 1rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-#start-btn:hover {
-  background: rgba(227, 59, 54, 0.25);
-  border-color: #e33b36;
-}
-
-#ui {
+#topbar {
   position: fixed;
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 15;
   display: flex;
-  flex-direction: column;
-  align-items: center;
   gap: 8px;
+  z-index: 15;
+  padding: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  background: rgba(8, 10, 12, 0.58);
   backdrop-filter: blur(10px);
 }
 
-#controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+body.webcam-mode #topbar {
+  background: rgba(8, 10, 12, 0.42);
 }
 
-#btn-free {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.8);
-  padding: 8px 18px;
+.mode-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,0.58);
+  padding: 8px 14px;
+  border-radius: 999px;
   font-size: 13px;
-  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 
-#btn-free:hover {
-  background: rgba(255,255,255,0.1);
-  color: #fff;
+.mode-btn:hover {
+  color: rgba(255,255,255,0.82);
 }
 
-#btn-free.active {
-  background: rgba(227, 59, 54, 0.15);
-  border-color: rgba(227, 59, 54, 0.4);
-  color: #f7f7f4;
+.mode-btn.active {
+  color: #fff7f3;
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
 }
 
 #debug-panel {

@@ -8,19 +8,12 @@
   </head>
   <body>
     <canvas id="canvas"></canvas>
-    <video id="webcam" playsinline style="display:none"></video>
+    <video id="webcam" playsinline muted></video>
 
-    <div id="overlay">
-      <h1>last-guitar</h1>
-      <p>Play guitar with your hands or controller</p>
-      <button id="start-btn">Start</button>
-    </div>
-
-    <div id="ui" style="display:none">
-      <div id="controls">
-        <button id="btn-free" class="active">Free</button>
-      </div>
-    </div>
+    <header id="topbar">
+      <button id="btn-joystick" class="mode-btn active" type="button">Joystick</button>
+      <button id="btn-webcam" class="mode-btn" type="button">Webcam</button>
+    </header>
 
     <div id="debug-panel" style="display:none"></div>
 
