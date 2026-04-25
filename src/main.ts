@@ -1,6 +1,6 @@
 import './style.css';
 import { SynthEngine } from './audio/SynthEngine';
-import { GamepadManager } from './input/GamepadManager';
+import { GamepadManager, type GamepadDebugState } from './input/GamepadManager';
 import { InputRouter, type InputEvent } from './input/InputRouter';
 import { SongManager } from './song/SongManager';
 import { CanvasRenderer } from './render/CanvasRenderer';
@@ -11,11 +11,13 @@ const inputRouter = new InputRouter();
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay')!;
 const ui = document.getElementById('ui')!;
+const debugPanel = document.getElementById('debug-panel') as HTMLDivElement;
 const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
 
 let renderer: CanvasRenderer;
 let gamepadManager: GamepadManager;
 let strumStart: { x: number; y: number; fired: boolean } | null = null;
+let debugRafId: number | null = null;
 
 // UI elements
 const btnFree = document.getElementById('btn-free') as HTMLButtonElement;
@@ -44,6 +46,52 @@ function strumCurrentChord(): void {
   renderer.triggerFlash(chord);
 }
 
+function renderDebug(state: GamepadDebugState): void {
+  const buttons = state.buttons
+    .map((pressed, index) => `${index}:${pressed ? '1' : '0'}`)
+    .join(' ');
+  const axes = state.axes.map((value, index) => `${index}:${value.toFixed(2)}`).join(' ');
+
+  debugPanel.textContent = [
+    `chord: ${state.chord}`,
+    `index: ${state.chordIndex}`,
+    `quality: ${state.quality}${state.sharp ? ' #' : ''}`,
+    `rsHolding: ${state.rsHolding ? 'yes' : 'no'}`,
+    `axes: ${axes}`,
+    `buttons: ${buttons}`,
+  ].join('\n');
+}
+
+function startDebugPolling(): void {
+  const tick = (): void => {
+    const gamepads = navigator.getGamepads();
+    const gp = Array.from(gamepads).find((pad) => pad !== null);
+
+    if (!gp) {
+      debugPanel.textContent = 'gamepad: none';
+      debugRafId = requestAnimationFrame(tick);
+      return;
+    }
+
+    const buttons = Array.from(gp.buttons).map((button) => button.pressed || button.value > 0.5);
+    const axes = gp.axes.map((axis) => Number(axis.toFixed(2)));
+
+    debugPanel.textContent = [
+      `id: ${gp.id}`,
+      `connected: ${gp.connected ? 'yes' : 'no'}`,
+      `axes: ${axes.map((value, index) => `${index}:${value}`).join(' ')}`,
+      `buttons: ${buttons.map((pressed, index) => `${index}:${pressed ? '1' : '0'}`).join(' ')}`,
+      `rs: ${axes[2] ?? 0}, ${axes[3] ?? 0}`,
+      `lt: ${axes[4] ?? 0} rt: ${axes[5] ?? 0}`,
+    ].join('\n');
+
+    debugRafId = requestAnimationFrame(tick);
+  };
+
+  if (debugRafId) cancelAnimationFrame(debugRafId);
+  debugRafId = requestAnimationFrame(tick);
+}
+
 // Start button
 startBtn.addEventListener('click', async () => {
   await synth.init();
@@ -53,6 +101,7 @@ startBtn.addEventListener('click', async () => {
     onStrum: (chord) => inputRouter.handleStrum(chord),
     onStrumHoldStart: (chord) => inputRouter.handleStrumHoldStart(chord),
     onStrumHoldEnd: (chord) => inputRouter.handleStrumHoldEnd(chord),
+    onDebug: renderDebug,
   });
   gamepadManager.start();
   inputRouter.connectGamepad();
@@ -98,4 +147,6 @@ startBtn.addEventListener('click', async () => {
 
   overlay.style.display = 'none';
   ui.style.display = 'flex';
+  debugPanel.style.display = 'block';
+  startDebugPolling();
 });

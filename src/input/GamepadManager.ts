@@ -5,6 +5,17 @@ export type GamepadCallbacks = {
   onStrum: (chord: string) => void;
   onStrumHoldStart: (chord: string) => void;
   onStrumHoldEnd: (chord: string) => void;
+  onDebug?: (state: GamepadDebugState) => void;
+};
+
+export type GamepadDebugState = {
+  chord: string;
+  chordIndex: number;
+  quality: ChordQuality;
+  sharp: boolean;
+  rsHolding: boolean;
+  axes: number[];
+  buttons: boolean[];
 };
 
 export class GamepadManager {
@@ -92,6 +103,16 @@ export class GamepadManager {
       this.callbacks.onStrumHoldEnd(this.currentChord());
       this.rsHolding = false;
     }
+
+    this.callbacks.onDebug?.({
+      chord: this.currentChord(),
+      chordIndex: this.currentChordIndex,
+      quality: this.currentQuality,
+      sharp: this.currentSharp,
+      rsHolding: this.rsHolding,
+      axes: gp.axes.slice(),
+      buttons,
+    });
 
     this.prevAxes = gp.axes.slice();
   }
