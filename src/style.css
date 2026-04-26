@@ -238,3 +238,18 @@ body.webcam-mode #topbar {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
 }
+
+.app-credit {
+  position: fixed;
+  left: 16px;
+  bottom: 22px;
+  z-index: 15;
+  font-size: 11px;
+  color: rgba(255,255,255,0.2);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.app-credit:hover {
+  color: rgba(255,255,255,0.5);
+}
