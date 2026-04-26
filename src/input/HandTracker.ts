@@ -1,7 +1,8 @@
-import { ROOT_NAMES, formatRootWithAccidental } from '../data/chords';
+import { ROOT_NAMES, transposeNoteName } from '../data/chords';
 
-type HandState = 'idle' | 'selecting' | 'sustaining';
+type HandState = 'idle' | 'sustaining';
 type TrackingSource = 'index' | 'fingers' | 'palm';
+type SideZoneState = 'idle' | 'arming' | 'triggered';
 
 type TrackedHand = {
   rawX: number;
@@ -15,11 +16,8 @@ type TrackedHand = {
   currentZone: number | null;
   confirmedChord: string | null;
   confirmedIndex: number | null;
-  pendingZone: number | null;
   lostFrames: number;
-  fistDetected: boolean;
-  fistFrames: number;
-  accidental: -1 | 0 | 1;
+  semitoneShift: number;
 };
 
 export type HandDebugInfo = {
@@ -33,7 +31,8 @@ export type HandDebugInfo = {
   state: HandState;
   confidence: number;
   source: TrackingSource;
-  fist: boolean;
+  shift: number;
+  sideZone: string;
 };
 
 export type HandPointerState = {
@@ -42,6 +41,15 @@ export type HandPointerState = {
   visible: boolean;
   wheel: number;
   source: TrackingSource;
+  shift: number;
+  inLeftZone: boolean;
+  inRightZone: boolean;
+  zoneHalf: 'top' | 'bottom' | null;
+};
+
+export type ShiftState = {
+  wheel: number;
+  shift: number;
 };
 
 export type HandCallbacks = {
@@ -49,6 +57,7 @@ export type HandCallbacks = {
   onStrumStart: (chord: string, wheelIndex: number) => void;
   onStrumEnd: (chord: string, wheelIndex: number) => void;
   onHandMove: (states: HandPointerState[]) => void;
+  onShiftChange?: (state: ShiftState) => void;
   onDebug?: (hands: HandDebugInfo[]) => void;
 };
 
@@ -59,6 +68,8 @@ const CONFIDENCE_THRESHOLD = 0.6;
 const MAX_LOST_FRAMES = 4;
 const INNER_RADIUS = 0.15;
 const OUTER_RADIUS = 0.34;
+const SIDE_ZONE_WIDTH = 0.06;
+const SIDE_ZONE_CONFIRM_FRAMES = 3;
 
 const WHEEL_CENTERS = [
   { x: 0.266, y: 0.5 },
@@ -68,12 +79,8 @@ const WHEEL_CENTERS = [
 const INDEX_TIP = 8;
 const INDEX_MCP = 5;
 const FINGERTIP_INDICES = [8, 12, 16, 20];
-const TIP_INDICES = [4, 8, 12, 16, 20];
-const MCP_INDICES = [2, 5, 9, 13, 17];
 const BLEND_LOW = 0.5;
 const BLEND_HIGH = 0.7;
-const FIST_THRESHOLD = 0.09;
-const FIST_CONFIRM_FRAMES = 3;
 
 function landmarkPos(landmarks: Array<{ x: number; y: number }>, indices: number[]): { x: number; y: number } {
   let sumX = 0;
@@ -89,16 +96,6 @@ function isOccluded(landmarks: Array<{ z?: number }>): boolean {
   const tipZ = landmarks[INDEX_TIP].z ?? 0;
   const mcpZ = landmarks[INDEX_MCP].z ?? 0;
   return tipZ > mcpZ + 0.02;
-}
-
-function isFist(landmarks: Array<{ x: number; y: number }>): boolean {
-  let totalDist = 0;
-  for (let i = 0; i < TIP_INDICES.length; i++) {
-    const tip = landmarks[TIP_INDICES[i]];
-    const mcp = landmarks[MCP_INDICES[i]];
-    totalDist += Math.hypot(tip.x - mcp.x, tip.y - mcp.y);
-  }
-  return (totalDist / TIP_INDICES.length) < FIST_THRESHOLD;
 }
 
 function resolveTrackingPoint(landmarks: Array<{ x: number; y: number; z?: number; visibility?: number }>): { pos: { x: number; y: number }; source: TrackingSource } {
@@ -127,10 +124,22 @@ function resolveTrackingPoint(landmarks: Array<{ x: number; y: number; z?: numbe
   };
 }
 
+function inLeftZone(x: number): boolean {
+  return x < SIDE_ZONE_WIDTH;
+}
+
+function inRightZone(x: number): boolean {
+  return x > 1 - SIDE_ZONE_WIDTH;
+}
+
 export class HandTracker {
   private callbacks: HandCallbacks;
   private video: HTMLVideoElement;
   private hands: [TrackedHand, TrackedHand];
+  private sideZones: [{ state: SideZoneState; frames: number }, { state: SideZoneState; frames: number }] = [
+    { state: 'idle', frames: 0 },
+    { state: 'idle', frames: 0 },
+  ];
   private active = false;
 
   constructor(videoElement: HTMLVideoElement, callbacks: HandCallbacks) {
@@ -151,11 +160,8 @@ export class HandTracker {
       currentZone: null,
       confirmedChord: null,
       confirmedIndex: null,
-      pendingZone: null,
       lostFrames: 0,
-      fistDetected: false,
-      fistFrames: 0,
-      accidental: 0,
+      semitoneShift: 0,
     };
   }
 
@@ -273,7 +279,7 @@ export class HandTracker {
       hand.confidence = det.score;
       hand.lostFrames = 0;
 
-      this.syncRightHandAccidental(wheelIndex, det.landmarks);
+      this.processSideZones(wheelIndex);
       this.processHandState(wheelIndex);
     }
 
@@ -293,22 +299,50 @@ export class HandTracker {
     this.emitDebug();
   }
 
-  private syncRightHandAccidental(wheelIndex: number, landmarks: Array<{ x: number; y: number }>): void {
-    if (wheelIndex !== 1) return;
-
+  private processSideZones(wheelIndex: number): void {
     const hand = this.hands[wheelIndex];
-    const closed = isFist(landmarks);
-    hand.fistFrames = Math.max(0, Math.min(FIST_CONFIRM_FRAMES, hand.fistFrames + (closed ? 1 : -1)));
+    const zone = this.sideZones[wheelIndex];
+    const x = hand.smoothX;
+    const y = hand.smoothY;
 
-    const nextFistDetected = hand.fistFrames >= FIST_CONFIRM_FRAMES;
-    const nextAccidental: -1 | 1 = nextFistDetected ? -1 : 1;
-    const accidentalChanged = hand.accidental !== nextAccidental;
+    const isInLeft = inLeftZone(x);
+    const isInRight = inRightZone(x);
+    const isInSide = isInLeft || isInRight;
+    const isTop = y < 0.5;
 
-    hand.fistDetected = nextFistDetected;
-    hand.accidental = nextAccidental;
+    if (zone.state === 'idle') {
+      if (isInSide) {
+        zone.state = 'arming';
+        zone.frames = 1;
+      }
+      return;
+    }
 
-    if (accidentalChanged) {
-      this.refreshCurrentWheelChord(wheelIndex);
+    if (zone.state === 'arming') {
+      if (isInSide) {
+        zone.frames++;
+        if (zone.frames >= SIDE_ZONE_CONFIRM_FRAMES) {
+          zone.state = 'triggered';
+          if (isTop) {
+            hand.semitoneShift++;
+          } else {
+            hand.semitoneShift--;
+          }
+          this.refreshCurrentWheelChord(wheelIndex);
+          this.callbacks.onShiftChange?.({ wheel: wheelIndex, shift: hand.semitoneShift });
+        }
+      } else {
+        zone.state = 'idle';
+        zone.frames = 0;
+      }
+      return;
+    }
+
+    if (zone.state === 'triggered') {
+      if (!isInSide) {
+        zone.state = 'idle';
+        zone.frames = 0;
+      }
     }
   }
 
@@ -330,8 +364,8 @@ export class HandTracker {
 
   private resolveChordForZone(wheelIndex: number, zone: number, hand: TrackedHand): string {
     const root = ROOT_NAMES[zone];
-    if (wheelIndex === 1) {
-      return formatRootWithAccidental(root, hand.accidental);
+    if (wheelIndex === 1 && hand.semitoneShift !== 0) {
+      return transposeNoteName(root, hand.semitoneShift);
     }
     return root;
   }
@@ -400,6 +434,7 @@ export class HandTracker {
       this.callbacks.onStrumEnd(hand.confirmedChord, wheelIndex);
     }
     Object.assign(hand, this.createHand());
+    this.sideZones[wheelIndex] = { state: 'idle', frames: 0 };
   }
 
   private emitVisuals(): void {
@@ -409,25 +444,44 @@ export class HandTracker {
       visible: hand.visible,
       wheel,
       source: hand.source,
+      shift: hand.semitoneShift,
+      inLeftZone: this.sideZones[wheel].state !== 'idle' && inLeftZone(hand.smoothX),
+      inRightZone: this.sideZones[wheel].state !== 'idle' && inRightZone(hand.smoothX),
+      zoneHalf: (this.sideZones[wheel].state !== 'idle' && (inLeftZone(hand.smoothX) || inRightZone(hand.smoothX)))
+        ? (hand.smoothY < 0.5 ? 'top' as const : 'bottom' as const)
+        : null,
     }));
     this.callbacks.onHandMove(states);
   }
 
   private emitDebug(): void {
     if (!this.callbacks.onDebug) return;
-    const infos: HandDebugInfo[] = this.hands.map((hand, wheel) => ({
-      wheel,
-      rawX: hand.rawX,
-      rawY: hand.rawY,
-      smoothX: hand.smoothX,
-      smoothY: hand.smoothY,
-      zone: hand.currentZone,
-      chord: hand.confirmedChord,
-      state: hand.state,
-      confidence: hand.confidence,
-      source: hand.source,
-      fist: hand.fistDetected,
-    }));
+    const infos: HandDebugInfo[] = this.hands.map((hand, wheel) => {
+      const x = hand.smoothX;
+      const y = hand.smoothY;
+      let sideZone = 'none';
+      if (this.sideZones[wheel].state === 'triggered') {
+        const half = y < 0.5 ? 'top' : 'bottom';
+        sideZone = inLeftZone(x) ? `left-${half}` : `right-${half}`;
+      } else if (this.sideZones[wheel].state === 'arming') {
+        const half = y < 0.5 ? 'top' : 'bottom';
+        sideZone = inLeftZone(x) ? `left-${half}-arming` : `right-${half}-arming`;
+      }
+      return {
+        wheel,
+        rawX: hand.rawX,
+        rawY: hand.rawY,
+        smoothX: hand.smoothX,
+        smoothY: hand.smoothY,
+        zone: hand.currentZone,
+        chord: hand.confirmedChord,
+        state: hand.state,
+        confidence: hand.confidence,
+        source: hand.source,
+        shift: hand.semitoneShift,
+        sideZone,
+      };
+    });
     this.callbacks.onDebug(infos);
   }
 

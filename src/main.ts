@@ -70,10 +70,10 @@ function renderHandDebug(hands: HandDebugInfo[]): void {
   const lines = hands.map((h) => {
     const zone = h.zone !== null ? ROOT_NAMES[h.zone] : '—';
     return [
-      `[wheel ${h.wheel}] state:${h.state} src:${h.source} fist:${h.fist ? 'yes' : 'no'} conf:${h.confidence.toFixed(2)}`,
+      `[wheel ${h.wheel}] state:${h.state} src:${h.source} conf:${h.confidence.toFixed(2)}`,
       `  raw:    (${h.rawX.toFixed(3)}, ${h.rawY.toFixed(3)})`,
       `  smooth: (${h.smoothX.toFixed(3)}, ${h.smoothY.toFixed(3)})`,
-      `  zone:${zone} chord:${h.chord ?? '—'}`,
+      `  zone:${zone} chord:${h.chord ?? '—'} shift:${h.shift > 0 ? '+' : ''}${h.shift} side:${h.sideZone}`,
     ].join('\n');
   });
   debugPanel.textContent = lines.join('\n');
@@ -95,6 +95,7 @@ async function enableWebcamMode(): Promise<void> {
       onStrumStart: (chord, _wheel) => inputRouter.handleHandStrumStart(chord),
       onStrumEnd: (chord, _wheel) => inputRouter.handleHandStrumEnd(chord),
       onHandMove: (states) => renderer.setHandPointers(states),
+      onShiftChange: (_state) => {},
       onDebug: renderHandDebug,
     });
   }

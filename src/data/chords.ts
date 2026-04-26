@@ -63,6 +63,12 @@ export function lowerHalfStep(note: NoteName): NoteName {
   return NOTE_ORDER[(index - 1 + NOTE_ORDER.length) % NOTE_ORDER.length];
 }
 
+export function transposeNoteName(root: NoteName, semitones: number): string {
+  const index = NOTE_INDEX.get(root) ?? 0;
+  const shifted = ((index + semitones) % NOTE_ORDER.length + NOTE_ORDER.length) % NOTE_ORDER.length;
+  return NOTE_ORDER[shifted];
+}
+
 export function formatRootWithAccidental(root: NoteName, accidental: -1 | 0 | 1): string {
   if (accidental === -1) return FLAT_EQUIVALENTS[root];
   if (accidental === 1) return raiseHalfStep(root);

@@ -186,6 +186,10 @@ export class CanvasRenderer {
       this.drawChordWheel(ctx, leftX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(0, leftX, centerY, wheelRadiusWebcam));
       this.drawChordWheel(ctx, rightX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(1, rightX, centerY, wheelRadiusWebcam));
 
+      this.drawSideZones(ctx, w, h);
+
+      this.drawShiftLabels(ctx, w, h, wheelRadiusWebcam);
+
       this.handPointers.filter((hand) => hand.visible).forEach((hand) => {
         const px = hand.x * w;
         const py = hand.y * h;
@@ -415,5 +419,96 @@ export class CanvasRenderer {
     const index = Math.min(Math.floor(normalized * ROOT_NAMES.length), ROOT_NAMES.length - 1);
 
     return distance >= radius * 0.55 && distance <= radius * 0.95 ? index : -1;
+  }
+
+  private drawSideZones(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const zoneW = w * 0.06;
+
+    for (const hand of this.handPointers) {
+      if (!hand.visible) continue;
+      const half = hand.zoneHalf;
+      if (hand.inLeftZone) {
+        const isTop = half === 'top';
+        ctx.save();
+        if (isTop) {
+          ctx.fillStyle = 'rgba(59,130,246,0.15)';
+          ctx.fillRect(0, 0, zoneW, h / 2);
+        } else {
+          ctx.fillStyle = 'rgba(34,197,94,0.15)';
+          ctx.fillRect(0, h / 2, zoneW, h / 2);
+        }
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(zoneW, 0);
+        ctx.lineTo(zoneW, h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, h / 2);
+        ctx.lineTo(zoneW, h / 2);
+        ctx.stroke();
+        ctx.font = '700 28px ui-sans-serif, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (isTop) {
+          ctx.fillStyle = 'rgba(59,130,246,0.8)';
+          ctx.fillText('+', zoneW / 2, h * 0.25);
+        } else {
+          ctx.fillStyle = 'rgba(34,197,94,0.8)';
+          ctx.fillText('\u2212', zoneW / 2, h * 0.75);
+        }
+        ctx.restore();
+      }
+      if (hand.inRightZone) {
+        const isTop = half === 'top';
+        ctx.save();
+        if (isTop) {
+          ctx.fillStyle = 'rgba(59,130,246,0.15)';
+          ctx.fillRect(w - zoneW, 0, zoneW, h / 2);
+        } else {
+          ctx.fillStyle = 'rgba(34,197,94,0.15)';
+          ctx.fillRect(w - zoneW, h / 2, zoneW, h / 2);
+        }
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(w - zoneW, 0);
+        ctx.lineTo(w - zoneW, h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(w - zoneW, h / 2);
+        ctx.lineTo(w, h / 2);
+        ctx.stroke();
+        ctx.font = '700 28px ui-sans-serif, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (isTop) {
+          ctx.fillStyle = 'rgba(59,130,246,0.8)';
+          ctx.fillText('+', w - zoneW / 2, h * 0.25);
+        } else {
+          ctx.fillStyle = 'rgba(34,197,94,0.8)';
+          ctx.fillText('\u2212', w - zoneW / 2, h * 0.75);
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  private drawShiftLabels(ctx: CanvasRenderingContext2D, w: number, h: number, wheelRadius: number): void {
+    const leftX = w * 0.279;
+    const rightX = w * 0.721;
+    const labelY = h * 0.5 + wheelRadius + 28;
+
+    for (const hand of this.handPointers) {
+      if (!hand.visible || hand.shift === 0) continue;
+      const cx = hand.wheel === 0 ? leftX : rightX;
+      ctx.save();
+      ctx.font = '600 16px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(hand.shift > 0 ? `+${hand.shift}` : `${hand.shift}`, cx, labelY);
+      ctx.restore();
+    }
   }
 }
