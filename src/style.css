@@ -37,6 +37,7 @@ body {
 
 body.webcam-mode #webcam {
   display: block;
+  filter: blur(8px);
 }
 
 #topbar {
@@ -142,6 +143,47 @@ body.webcam-mode #topbar {
   margin-left: 2px;
 }
 
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 4px;
+}
+
+.ctrl-btn {
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ctrl-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.85);
+}
+
+.ctrl-label {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  min-width: 72px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .detune-btn {
   border: 1px solid rgba(255,255,255,0.1);
   background: transparent;
@@ -168,4 +210,31 @@ body.webcam-mode #topbar {
   min-width: 36px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+#start-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 7, 0.92);
+  cursor: pointer;
+}
+
+#start-overlay.hidden {
+  display: none;
+}
+
+#start-content p {
+  color: #f7f7f4;
+  font-size: 1.1rem;
+  text-align: center;
+  animation: pulse-text 2s ease-in-out infinite;
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }

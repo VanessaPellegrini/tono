@@ -5,7 +5,7 @@ export function drawBackground(
   isWebcam: boolean,
 ): void {
   if (isWebcam) {
-    ctx.fillStyle = 'rgba(3, 5, 6, 0.38)';
+    ctx.fillStyle = 'rgba(3, 5, 6, 0.25)';
     ctx.fillRect(0, 0, w, h);
     return;
   }

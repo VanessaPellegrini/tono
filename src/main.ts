@@ -1,4 +1,5 @@
 import './style.css';
+import { start as toneStart } from 'tone';
 import { SynthEngine } from './audio/SynthEngine';
 import { GamepadManager } from './input/GamepadManager';
 import { HandTracker } from './input/HandTracker';
@@ -6,6 +7,7 @@ import { InputRouter, type InputEvent } from './input/InputRouter';
 import { SongManager } from './song/SongManager';
 import { CanvasRenderer } from './render/CanvasRenderer';
 import { appState } from './state/AppState';
+import { CIRCLE_OF_FIFTHS, SCALE_TYPES } from './data/scales';
 
 const synth = new SynthEngine();
 const songManager = new SongManager();
@@ -16,9 +18,9 @@ const btnJoystick = document.getElementById('btn-joystick') as HTMLButtonElement
 const btnWebcam = document.getElementById('btn-webcam') as HTMLButtonElement;
 const btnGuitar = document.getElementById('btn-guitar') as HTMLButtonElement;
 const btnPiano = document.getElementById('btn-piano') as HTMLButtonElement;
-const btnDetuneUp = document.getElementById('btn-detune-up') as HTMLButtonElement;
-const btnDetuneDown = document.getElementById('btn-detune-down') as HTMLButtonElement;
-const detuneValue = document.getElementById('detune-value') as HTMLSpanElement;
+const btnScalePrev = document.getElementById('btn-scale-prev') as HTMLButtonElement;
+const btnScaleNext = document.getElementById('btn-scale-next') as HTMLButtonElement;
+const scaleLabel = document.getElementById('scale-label') as HTMLSpanElement;
 
 let renderer: CanvasRenderer;
 let gamepadManager: GamepadManager;
@@ -53,9 +55,22 @@ function handleInput(event: InputEvent): void {
   }
 }
 
-function updateDetuneDisplay(): void {
-  const cents = synth.getDetune(appState.instrument);
-  detuneValue.textContent = `${cents > 0 ? '+' : ''}${cents} ct`;
+
+
+function updateScaleLabel(): void {
+  scaleLabel.textContent = appState.scaleLabel;
+}
+
+function updateDualWheelState(): void {
+  if (appState.mode === 'webcam') {
+    renderer.setDualWheelState({
+      scaleRoot: appState.scaleRoot,
+      scaleType: appState.scaleType,
+      diatonicChords: appState.diatonicChords,
+      selectedChordDegree: appState.chordDegree,
+      scaleLabel: appState.scaleLabel,
+    });
+  }
 }
 
 function setActiveMode(mode: 'joystick' | 'webcam'): void {
@@ -64,6 +79,12 @@ function setActiveMode(mode: 'joystick' | 'webcam'): void {
   btnWebcam.classList.toggle('active', mode === 'webcam');
   inputRouter.setGamepadActive(mode === 'joystick');
   renderer.setInputMode(mode);
+
+  if (mode === 'webcam') {
+    updateDualWheelState();
+  } else {
+    renderer.setDualWheelState(null);
+  }
 }
 
 function setInstrument(mode: 'guitar' | 'piano'): void {
@@ -71,7 +92,16 @@ function setInstrument(mode: 'guitar' | 'piano'): void {
   synth.setInstrument(mode);
   btnGuitar.classList.toggle('active', mode === 'guitar');
   btnPiano.classList.toggle('active', mode === 'piano');
-  updateDetuneDisplay();
+}
+
+function cycleScale(direction: 1 | -1): void {
+  const currentIndex = SCALE_TYPES.findIndex((s) => s.id === appState.scaleType);
+  let nextIndex = currentIndex + direction;
+  if (nextIndex < 0) nextIndex = SCALE_TYPES.length - 1;
+  if (nextIndex >= SCALE_TYPES.length) nextIndex = 0;
+  appState.setScaleType(SCALE_TYPES[nextIndex].id);
+  updateScaleLabel();
+  updateDualWheelState();
 }
 
 function strumCurrentChord(): void {
@@ -80,12 +110,39 @@ function strumCurrentChord(): void {
   playAndFlash(chord, false, 0);
 }
 
+function getSegmentAtPoint(px: number, py: number, cx: number, cy: number, radius: number, segmentCount: number): number {
+  const dx = px - cx;
+  const dy = py - cy;
+  const distance = Math.hypot(dx, dy);
+  if (distance < radius * 0.33 || distance > radius * 0.98) return -1;
+  const angle = Math.atan2(dy, dx);
+  const normalized = ((angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+  return Math.min(Math.floor(normalized * segmentCount), segmentCount - 1);
+}
+
 async function enableWebcamMode(): Promise<void> {
   await synth.ensureReady();
   if (!handTracker) {
     handTracker = new HandTracker(webcam, {
-      onChordSelect: (chord: string, index: number, wheel: number) => inputRouter.handleHandChordSelect(chord, index, wheel),
-      onStrumStart: (chord: string) => inputRouter.handleHandStrumStart(chord),
+      onChordSelect: (_chord: string, index: number, wheel: number) => {
+        if (appState.mode !== 'webcam') return;
+        if (wheel === 0) {
+          const root = CIRCLE_OF_FIFTHS[index];
+          if (root) {
+            appState.setScaleRoot(root);
+            updateScaleLabel();
+            updateDualWheelState();
+          }
+        } else {
+          appState.setChordDegree(index);
+          updateDualWheelState();
+          const diatonicChord = appState.currentDiatonicChord;
+          if (diatonicChord) {
+            playAndFlash(diatonicChord.name, true, 1);
+          }
+        }
+      },
+      onStrumStart: () => {},
       onStrumEnd: (chord: string, wheel: number) => inputRouter.handleHandStrumEnd(chord, wheel),
       onHandMove: (states) => renderer.setHandPointers(states),
       onShiftChange: () => {},
@@ -101,8 +158,66 @@ async function enableWebcamMode(): Promise<void> {
 function enableJoystickMode(): void {
   handTracker?.stop();
   renderer.setHandPointers([]);
+  renderer.setHoveredScaleIndex(-1);
+  renderer.setHoveredChordIndex(-1);
   document.body.classList.remove('webcam-mode');
   setActiveMode('joystick');
+}
+
+function handleCanvasPointerMove(event: PointerEvent): void {
+  if (appState.mode !== 'webcam') return;
+
+  const scaleGeom = renderer.getScaleWheelGeometry();
+  const chordGeom = renderer.getChordWheelGeometry();
+
+  if (scaleGeom) {
+    const idx = getSegmentAtPoint(event.clientX, event.clientY, scaleGeom.cx, scaleGeom.cy, scaleGeom.radius, CIRCLE_OF_FIFTHS.length);
+    renderer.setHoveredScaleIndex(idx);
+  }
+
+  if (chordGeom) {
+    const idx = getSegmentAtPoint(event.clientX, event.clientY, chordGeom.cx, chordGeom.cy, chordGeom.radius, chordGeom.chordCount);
+    renderer.setHoveredChordIndex(idx);
+  }
+}
+
+function handleCanvasPointerDown(event: PointerEvent): void {
+  void synth.ensureReady();
+
+  if (appState.mode === 'webcam') {
+    const scaleGeom = renderer.getScaleWheelGeometry();
+    const chordGeom = renderer.getChordWheelGeometry();
+
+    if (scaleGeom) {
+      const idx = getSegmentAtPoint(event.clientX, event.clientY, scaleGeom.cx, scaleGeom.cy, scaleGeom.radius, CIRCLE_OF_FIFTHS.length);
+      if (idx >= 0) {
+        const root = CIRCLE_OF_FIFTHS[idx];
+        if (root) {
+          appState.setScaleRoot(root);
+          updateScaleLabel();
+          updateDualWheelState();
+        }
+      }
+    }
+
+    if (chordGeom) {
+      const idx = getSegmentAtPoint(event.clientX, event.clientY, chordGeom.cx, chordGeom.cy, chordGeom.radius, chordGeom.chordCount);
+      if (idx >= 0) {
+        appState.setChordDegree(idx);
+        updateDualWheelState();
+        const diatonicChord = appState.currentDiatonicChord;
+        if (diatonicChord) {
+          playAndFlash(diatonicChord.name, false, 1);
+        }
+      }
+    }
+
+    canvas.setPointerCapture(event.pointerId);
+    return;
+  }
+
+  strumStart = { x: event.clientX, y: event.clientY, fired: false };
+  canvas.setPointerCapture(event.pointerId);
 }
 
 function initApp(): void {
@@ -110,6 +225,7 @@ function initApp(): void {
   renderer = new CanvasRenderer(canvas, songManager);
   renderer.setInputMode('joystick');
   setInstrument('guitar');
+  updateScaleLabel();
   gamepadManager = new GamepadManager({
     onChordSelect: (chord, index) => {
       if (appState.mode !== 'joystick') return;
@@ -145,14 +261,12 @@ function initApp(): void {
     }
   });
 
-  canvas.addEventListener('pointerdown', (event) => {
-    void synth.ensureReady();
-    strumStart = { x: event.clientX, y: event.clientY, fired: false };
-    canvas.setPointerCapture(event.pointerId);
-  });
+  canvas.addEventListener('pointerdown', handleCanvasPointerDown);
+
+  canvas.addEventListener('pointermove', handleCanvasPointerMove);
 
   canvas.addEventListener('pointermove', (event) => {
-    if (!strumStart || strumStart.fired) return;
+    if (!strumStart || strumStart.fired || appState.mode === 'webcam') return;
 
     const dx = event.clientX - strumStart.x;
     const dy = event.clientY - strumStart.y;
@@ -182,18 +296,25 @@ function initApp(): void {
     void synth.ensureReady();
   });
 
-  btnDetuneUp.addEventListener('click', () => {
-    synth.setDetune(appState.instrument, synth.getDetune(appState.instrument) + 5);
-    updateDetuneDisplay();
-  });
+  btnScalePrev.addEventListener('click', () => cycleScale(-1));
+  btnScaleNext.addEventListener('click', () => cycleScale(1));
 
-  btnDetuneDown.addEventListener('click', () => {
-    synth.setDetune(appState.instrument, synth.getDetune(appState.instrument) - 5);
-    updateDetuneDisplay();
-  });
+  const overlay = document.getElementById('start-overlay');
+
+  function dismissOverlay() {
+    if (!overlay) return;
+    overlay.classList.add('hidden');
+    toneStart();
+    void synth.ensureReady();
+  }
+
+  overlay?.addEventListener('click', dismissOverlay, { once: true });
+  overlay?.addEventListener('touchstart', dismissOverlay, { once: true });
+  window.addEventListener('keydown', dismissOverlay, { once: true });
 
   window.addEventListener('gamepadconnected', () => {
     if (appState.mode === 'joystick') inputRouter.setGamepadActive(true);
+    void synth.ensureReady();
   });
 }
 

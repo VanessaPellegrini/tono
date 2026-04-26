@@ -1,7 +1,7 @@
-const NOTE_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
+export const NOTE_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 
 export type NoteName = (typeof NOTE_ORDER)[number];
-export type ChordQuality = 'major' | 'minor' | 'seventh' | 'suspended';
+export type ChordQuality = 'major' | 'minor' | 'seventh' | 'suspended' | 'diminished' | 'augmented';
 
 export type ChordInfo = {
   root: string;
@@ -19,6 +19,8 @@ export const QUALITY_SUFFIX: Record<ChordQuality, string> = {
   minor: 'm',
   seventh: '7',
   suspended: 'sus4',
+  diminished: 'dim',
+  augmented: 'aug',
 };
 
 const NOTE_INDEX = new Map<NoteName, number>(NOTE_ORDER.map((note, index) => [note, index]));
@@ -96,6 +98,8 @@ function buildVoicing(root: NoteName, quality: ChordQuality): string[] {
       return [rootNote, third, fifth, seventh];
     case 'suspended':
       return [rootNote, suspendedFourth, fifth, octave];
+    case 'diminished':
+      return [rootNote, third, transpose(rootNote, 6), octave];
     default:
       return [rootNote, third, fifth, octave];
   }

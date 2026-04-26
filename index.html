@@ -12,18 +12,25 @@
 
     <header id="topbar">
       <button id="btn-joystick" class="mode-btn active" type="button">Joystick</button>
-      <button id="btn-webcam" class="mode-btn" type="button">Webcam</button>
+      <button id="btn-webcam" class="mode-btn" type="button">Dual Wheel</button>
     </header>
 
     <footer id="instrument-bar">
+      <div id="scale-control" class="control-group">
+        <button id="btn-scale-prev" class="ctrl-btn" type="button" title="Previous scale">&#9664;</button>
+        <span id="scale-label" class="ctrl-label">C Major</span>
+        <button id="btn-scale-next" class="ctrl-btn" type="button" title="Next scale">&#9654;</button>
+      </div>
+      <div class="divider"></div>
       <button id="btn-guitar" class="instrument-btn active" type="button">Guitarra</button>
       <button id="btn-piano" class="instrument-btn" type="button">Piano</button>
-      <div id="detune-control">
-        <button id="btn-detune-down" class="detune-btn" type="button">-5</button>
-        <span id="detune-value">0 ct</span>
-        <button id="btn-detune-up" class="detune-btn" type="button">+5</button>
-      </div>
     </footer>
+
+    <div id="start-overlay">
+      <div id="start-content">
+        <p>Tap anywhere or press any key to start</p>
+      </div>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

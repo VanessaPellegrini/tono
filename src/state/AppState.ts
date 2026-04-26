@@ -1,3 +1,7 @@
+import type { NoteName } from '../data/chords';
+import type { ScaleType, DiatonicChord } from '../data/scales';
+import { getDiatonicChords, getScaleLabel } from '../data/scales';
+
 export type InputMode = 'joystick' | 'webcam';
 export type InstrumentMode = 'guitar' | 'piano';
 
@@ -8,6 +12,9 @@ class AppState {
   private instrumentMode: InstrumentMode = 'guitar';
   private selectedChordIndex = 0;
   private currentChordName = 'A';
+  private selectedScaleRoot: NoteName = 'C';
+  private selectedScaleType: ScaleType = 'major';
+  private selectedChordDegree = 0;
   private listeners = new Set<Listener>();
 
   get mode(): InputMode {
@@ -26,6 +33,31 @@ class AppState {
     return this.currentChordName;
   }
 
+  get scaleRoot(): NoteName {
+    return this.selectedScaleRoot;
+  }
+
+  get scaleType(): ScaleType {
+    return this.selectedScaleType;
+  }
+
+  get chordDegree(): number {
+    return this.selectedChordDegree;
+  }
+
+  get diatonicChords(): DiatonicChord[] {
+    return getDiatonicChords(this.selectedScaleRoot, this.selectedScaleType);
+  }
+
+  get currentDiatonicChord(): DiatonicChord | null {
+    const chords = this.diatonicChords;
+    return chords[this.selectedChordDegree] ?? null;
+  }
+
+  get scaleLabel(): string {
+    return getScaleLabel(this.selectedScaleRoot, this.selectedScaleType);
+  }
+
   setMode(mode: InputMode): void {
     if (this.inputMode === mode) return;
     this.inputMode = mode;
@@ -41,6 +73,25 @@ class AppState {
   setChord(index: number, name: string): void {
     this.selectedChordIndex = Math.max(0, index);
     this.currentChordName = name;
+    this.notify();
+  }
+
+  setScaleRoot(root: NoteName): void {
+    if (this.selectedScaleRoot === root) return;
+    this.selectedScaleRoot = root;
+    this.selectedChordDegree = 0;
+    this.notify();
+  }
+
+  setScaleType(type: ScaleType): void {
+    if (this.selectedScaleType === type) return;
+    this.selectedScaleType = type;
+    this.selectedChordDegree = 0;
+    this.notify();
+  }
+
+  setChordDegree(degree: number): void {
+    this.selectedChordDegree = Math.max(0, degree);
     this.notify();
   }
 
