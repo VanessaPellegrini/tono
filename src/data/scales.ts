@@ -1,5 +1,6 @@
 import type { NoteName, ChordQuality } from './chords';
-import { NOTE_ORDER, formatChordName } from './chords';
+import type { AccidentalMode } from './chords';
+import { NOTE_ORDER, formatChordName, displayNote } from './chords';
 
 const NOTE_INDEX = new Map<NoteName, number>(NOTE_ORDER.map((note, i) => [note, i]));
 
@@ -74,29 +75,35 @@ const QUALITY_MAPS: Partial<Record<ScaleType, ChordQuality[]>> = {
   mixolydian: MIXOLYDIAN_QUALITY_MAP,
 };
 
-export function getDiatonicChords(root: NoteName, scaleType: ScaleType): DiatonicChord[] {
+export function getDiatonicChords(root: NoteName, scaleType: ScaleType, mode: AccidentalMode = 'sharp'): DiatonicChord[] {
   const notes = getScaleNotes(root, scaleType);
 
   if (notes.length !== 7) {
     const pentatonic = scaleType === 'pentatonic_major' ? MAJOR_QUALITY_MAP : MINOR_QUALITY_MAP;
-    return notes.slice(0, 7).map((note, i) => ({
-      degree: i,
-      degreeSymbol: DEGREE_SYMBOLS[i] ?? `${i + 1}`,
-      root: note,
-      quality: pentatonic[i] ?? 'major',
-      name: formatChordName(note, pentatonic[i] ?? 'major'),
-    }));
+    return notes.slice(0, 7).map((note, i) => {
+      const displayRoot = displayNote(note, mode);
+      return {
+        degree: i,
+        degreeSymbol: DEGREE_SYMBOLS[i] ?? `${i + 1}`,
+        root: note,
+        quality: pentatonic[i] ?? 'major',
+        name: formatChordName(displayRoot, pentatonic[i] ?? 'major'),
+      };
+    });
   }
 
   const qualityMap = QUALITY_MAPS[scaleType] ?? MAJOR_QUALITY_MAP;
 
-  return notes.map((note, i) => ({
-    degree: i,
-    degreeSymbol: DEGREE_SYMBOLS[i] ?? `${i + 1}`,
-    root: note,
-    quality: qualityMap[i] ?? 'major',
-    name: formatChordName(note, qualityMap[i] ?? 'major'),
-  }));
+  return notes.map((note, i) => {
+    const displayRoot = displayNote(note, mode);
+    return {
+      degree: i,
+      degreeSymbol: DEGREE_SYMBOLS[i] ?? `${i + 1}`,
+      root: note,
+      quality: qualityMap[i] ?? 'major',
+      name: formatChordName(displayRoot, qualityMap[i] ?? 'major'),
+    };
+  });
 }
 
 export function getScaleLabel(root: NoteName, scaleType: ScaleType): string {

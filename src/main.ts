@@ -7,6 +7,7 @@ import { InputRouter, type InputEvent } from './input/InputRouter';
 import { SongManager } from './song/SongManager';
 import { CanvasRenderer } from './render/CanvasRenderer';
 import { appState, type InputMode } from './state/AppState';
+import type { AccidentalMode } from './data/chords';
 import { CIRCLE_OF_FIFTHS, SCALE_TYPES } from './data/scales';
 
 const synth = new SynthEngine();
@@ -22,6 +23,7 @@ const btnPiano = document.getElementById('btn-piano') as HTMLButtonElement;
 const btnScalePrev = document.getElementById('btn-scale-prev') as HTMLButtonElement;
 const btnScaleNext = document.getElementById('btn-scale-next') as HTMLButtonElement;
 const scaleLabel = document.getElementById('scale-label') as HTMLSpanElement;
+const btnAccidental = document.getElementById('btn-accidental') as HTMLButtonElement;
 
 let renderer: CanvasRenderer;
 let gamepadManager: GamepadManager;
@@ -67,6 +69,7 @@ function updateDualWheelState(): void {
     diatonicChords: appState.diatonicChords,
     selectedChordDegree: appState.chordDegree,
     scaleLabel: appState.scaleLabel,
+    useFlats: appState.accidentalMode,
   });
 }
 
@@ -93,7 +96,7 @@ function setInstrument(mode: 'guitar' | 'piano'): void {
 }
 
 function cycleScale(direction: 1 | -1): void {
-  const currentIndex = SCALE_TYPES.findIndex((s) => s.id === appState.scaleType);
+  const currentIndex = SCALE_TYPES.findIndex((s: { id: string }) => s.id === appState.scaleType);
   let nextIndex = currentIndex + direction;
   if (nextIndex < 0) nextIndex = SCALE_TYPES.length - 1;
   if (nextIndex >= SCALE_TYPES.length) nextIndex = 0;
@@ -308,6 +311,22 @@ function initApp(): void {
 
   btnScalePrev.addEventListener('click', () => cycleScale(-1));
   btnScaleNext.addEventListener('click', () => cycleScale(1));
+
+  const ACCIDENTAL_CYCLE: { mode: AccidentalMode; label: string }[] = [
+    { mode: 'sharp', label: '♯' },
+    { mode: 'natural', label: '♮' },
+    { mode: 'flat', label: '♭' },
+  ];
+  let accidentalIndex = 0;
+
+  btnAccidental.addEventListener('click', () => {
+    accidentalIndex = (accidentalIndex + 1) % ACCIDENTAL_CYCLE.length;
+    const { mode, label } = ACCIDENTAL_CYCLE[accidentalIndex];
+    appState.setAccidentalMode(mode);
+    btnAccidental.textContent = label;
+    updateScaleLabel();
+    updateDualWheelState();
+  });
 
   const overlay = document.getElementById('start-overlay');
 

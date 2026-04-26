@@ -1,4 +1,5 @@
-import type { NoteName } from '../data/chords';
+import type { NoteName, AccidentalMode } from '../data/chords';
+import { displayNote } from '../data/chords';
 import { CIRCLE_OF_FIFTHS } from '../data/scales';
 
 export function drawScaleWheel(
@@ -9,6 +10,7 @@ export function drawScaleWheel(
   selectedRoot: NoteName,
   hoveredIndex: number,
   label: string,
+  accidentalMode: AccidentalMode = 'sharp',
 ): void {
   const count = CIRCLE_OF_FIFTHS.length;
   const wedgeAngle = (Math.PI * 2) / count;
@@ -31,6 +33,7 @@ export function drawScaleWheel(
     const mid = angle + wedgeAngle / 2;
     const isSelected = root === selectedRoot;
     const isHovered = index === hoveredIndex;
+    const displayRoot = displayNote(root, accidentalMode);
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -66,7 +69,7 @@ export function drawScaleWheel(
       : isHovered
         ? 'rgba(255,255,255,0.72)'
         : 'rgba(255,255,255,0.36)';
-    ctx.fillText(root, 0, 0);
+    ctx.fillText(displayRoot, 0, 0);
     ctx.restore();
 
     ctx.save();

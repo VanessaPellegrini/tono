@@ -253,3 +253,8 @@ body.webcam-mode #topbar {
 .app-credit:hover {
   color: rgba(255,255,255,0.5);
 }
+
+.accidental-btn {
+  font-size: 14px;
+  width: 30px;
+}

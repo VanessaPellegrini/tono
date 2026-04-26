@@ -3,6 +3,22 @@ export const NOTE_ORDER = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
 export type NoteName = (typeof NOTE_ORDER)[number];
 export type ChordQuality = 'major' | 'minor' | 'seventh' | 'suspended' | 'diminished' | 'augmented';
 
+export const SHARP_TO_FLAT: Partial<Record<NoteName, string>> = {
+  'C#': 'Db',
+  'D#': 'Eb',
+  'F#': 'Gb',
+  'G#': 'Ab',
+  'A#': 'Bb',
+};
+
+export type AccidentalMode = 'sharp' | 'flat' | 'natural';
+
+export function displayNote(note: string, mode: AccidentalMode): string {
+  if (mode === 'sharp') return note;
+  if (mode === 'flat') return SHARP_TO_FLAT[note as NoteName] ?? note;
+  return note.replace('#', '');
+}
+
 export type ChordInfo = {
   root: string;
   quality: ChordQuality;

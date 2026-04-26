@@ -9,7 +9,7 @@ import { drawConnection } from './drawConnection';
 import { drawHandPointers } from './drawHandPointers';
 import { spawnParticles, updateAndDrawParticles } from './particles';
 import type { Particle } from './particles';
-import type { NoteName } from '../data/chords';
+import type { NoteName, AccidentalMode } from '../data/chords';
 import type { ScaleType, DiatonicChord } from '../data/scales';
 import type { InputMode } from '../state/AppState';
 
@@ -19,6 +19,7 @@ export interface DualWheelState {
   diatonicChords: DiatonicChord[];
   selectedChordDegree: number;
   scaleLabel: string;
+  useFlats: AccidentalMode;
 }
 
 export class CanvasRenderer {
@@ -168,6 +169,7 @@ export class CanvasRenderer {
           this.dualWheelState.scaleRoot,
           this.hoveredScaleIndex,
           this.dualWheelState.scaleLabel,
+          this.dualWheelState.useFlats,
         );
 
         const flashRef = { value: this.flashAlpha };
