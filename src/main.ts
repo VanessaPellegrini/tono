@@ -15,6 +15,8 @@ const webcam = document.getElementById('webcam') as HTMLVideoElement;
 const debugPanel = document.getElementById('debug-panel') as HTMLDivElement;
 const btnJoystick = document.getElementById('btn-joystick') as HTMLButtonElement;
 const btnWebcam = document.getElementById('btn-webcam') as HTMLButtonElement;
+const btnGuitar = document.getElementById('btn-guitar') as HTMLButtonElement;
+const btnPiano = document.getElementById('btn-piano') as HTMLButtonElement;
 
 let renderer: CanvasRenderer;
 let gamepadManager: GamepadManager;
@@ -23,6 +25,7 @@ let strumStart: { x: number; y: number; fired: boolean } | null = null;
 let debugRafId: number | null = null;
 const debugEnabled = true;
 let inputMode: 'joystick' | 'webcam' = 'joystick';
+let instrumentMode: 'guitar' | 'piano' = 'guitar';
 
 async function ensureSynthReady(): Promise<void> {
   try {
@@ -37,8 +40,20 @@ function handleInput(event: InputEvent): void {
     case 'chord-select':
       renderer.setSelectedChord(event.chordIndex ?? 0);
       renderer.setCurrentChordName(event.chord);
+      if (inputMode === 'webcam') {
+        if (synth.isReady()) {
+          synth.playChord(event.chord, true);
+          renderer.triggerFlash(event.chord);
+        } else {
+          void ensureSynthReady().then(() => {
+            synth.playChord(event.chord, true);
+            renderer.triggerFlash(event.chord);
+          });
+        }
+      }
       break;
     case 'chord-play':
+      if (inputMode === 'webcam') break;
       if (synth.isReady()) {
         synth.playChord(event.chord, event.sustain ?? false);
         renderer.triggerFlash(event.chord);
@@ -53,6 +68,13 @@ function handleInput(event: InputEvent): void {
       synth.stopChord();
       break;
   }
+}
+
+function setInstrument(mode: 'guitar' | 'piano'): void {
+  instrumentMode = mode;
+  synth.setInstrument(mode);
+  btnGuitar.classList.toggle('active', mode === 'guitar');
+  btnPiano.classList.toggle('active', mode === 'piano');
 }
 
 function strumCurrentChord(): void {
@@ -70,6 +92,7 @@ function renderHandDebug(hands: HandDebugInfo[]): void {
   const lines = hands.map((h) => {
     const zone = h.zone !== null ? ROOT_NAMES[h.zone] : '—';
     return [
+      `instrument: ${instrumentMode}`,
       `[wheel ${h.wheel}] state:${h.state} src:${h.source} conf:${h.confidence.toFixed(2)}`,
       `  raw:    (${h.rawX.toFixed(3)}, ${h.rawY.toFixed(3)})`,
       `  smooth: (${h.smoothX.toFixed(3)}, ${h.smoothY.toFixed(3)})`,
@@ -148,6 +171,7 @@ function initApp(): void {
   void ensureSynthReady();
   renderer = new CanvasRenderer(canvas, songManager);
   renderer.setInputMode('joystick');
+  setInstrument('guitar');
   gamepadManager = new GamepadManager({
     onChordSelect: (chord, index) => {
       if (inputMode !== 'joystick') return;
@@ -229,6 +253,16 @@ function initApp(): void {
 
   canvas.addEventListener('pointercancel', () => {
     strumStart = null;
+  });
+
+  btnGuitar.addEventListener('click', () => {
+    setInstrument('guitar');
+    void ensureSynthReady();
+  });
+
+  btnPiano.addEventListener('click', () => {
+    setInstrument('piano');
+    void ensureSynthReady();
   });
 
   // Listen for gamepad connection

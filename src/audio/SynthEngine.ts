@@ -2,17 +2,30 @@ import { Compressor, Filter, Gain, Reverb, Sampler, now as toneNow, start as ton
 import { ROOT_NAMES, getChordInfoByName } from '../data/chords';
 
 export class SynthEngine {
-  private sampler!: Sampler;
+  private guitarSampler!: Sampler;
+  private pianoSampler!: Sampler;
   private reverb!: Reverb;
   private gain!: Gain;
   private filter!: Filter;
   private compressor!: Compressor;
   private currentChord: string | null = null;
   private currentNotes: string[] = [];
+  private currentInstrument: 'guitar' | 'piano' = 'guitar';
   private initialized = false;
+  private loaded: Record<'guitar' | 'piano', boolean> = { guitar: false, piano: false };
 
   isReady(): boolean {
-    return this.initialized;
+    return this.initialized && this.loaded[this.currentInstrument];
+  }
+
+  setInstrument(instrument: 'guitar' | 'piano'): void {
+    if (this.currentInstrument === instrument) return;
+    this.stopChord();
+    this.currentInstrument = instrument;
+  }
+
+  getInstrument(): 'guitar' | 'piano' {
+    return this.currentInstrument;
   }
 
   async init(): Promise<void> {
@@ -26,19 +39,65 @@ export class SynthEngine {
     this.filter.connect(this.compressor);
     this.compressor.connect(this.reverb);
 
-    this.sampler = new Sampler({
-      urls: {
-        E2: 'guitar_LowEstring1.mp3',
-        A2: 'guitar_Astring.mp3',
-        D3: 'guitar_Dstring.mp3',
-        G3: 'guitar_Gstring.mp3',
-        B3: 'guitar_Bstring.mp3',
-        E4: 'guitar_highEstring.mp3',
-      },
-      baseUrl: 'https://tonejs.github.io/audio/berklee/',
-      release: 1.8,
-      onload: () => undefined,
-    }).connect(this.gain);
+    await Promise.all([
+      new Promise<void>((resolve) => {
+        this.guitarSampler = new Sampler({
+          urls: {
+            A2: 'a2_mf_rr1.wav',
+            A3: 'a3_mf_rr1.wav',
+            A4: 'a4_mf_rr1.wav',
+            A5: 'a5_mf_rr1.wav',
+            C3: 'c3_mf_rr1.wav',
+            C4: 'c4_mf_rr1.wav',
+            C5: 'c5_mf_rr1.wav',
+            C6: 'c6_mf_rr1.wav',
+            E2: 'e2_mf_rr1.wav',
+            'D#3': 'eb3_mf_rr1.wav',
+            'D#4': 'eb4_mf_rr1.wav',
+            'D#5': 'eb5_mf_rr1.wav',
+            'F#2': 'gb2_mf_rr1.wav',
+            'F#3': 'gb3_mf_rr1.wav',
+            'F#4': 'gb4_mf_rr1.wav',
+            'F#5': 'gb5_mf_rr1.wav',
+            'C#2': 'db2_mf_rr1.wav',
+          },
+          baseUrl: '/audio/guitar-emily/',
+          release: 1.8,
+          onload: () => {
+            this.loaded.guitar = true;
+            resolve();
+          },
+        }).connect(this.gain);
+      }),
+      new Promise<void>((resolve) => {
+        this.pianoSampler = new Sampler({
+          urls: {
+            A0: 'A0v10.mp3',
+            A1: 'A1v10.mp3',
+            A2: 'A2v10.mp3',
+            A3: 'A3v10.mp3',
+            A4: 'A4v10.mp3',
+            A5: 'A5v10.mp3',
+            A6: 'A6v10.mp3',
+            A7: 'A7v10.mp3',
+            C1: 'C1v10.mp3',
+            C2: 'C2v10.mp3',
+            C3: 'C3v10.mp3',
+            C4: 'C4v10.mp3',
+            C5: 'C5v10.mp3',
+            C6: 'C6v10.mp3',
+            C7: 'C7v10.mp3',
+            C8: 'C8v10.mp3',
+          },
+          baseUrl: '/audio/piano-velocity10/',
+          release: 1.6,
+          onload: () => {
+            this.loaded.piano = true;
+            resolve();
+          },
+        }).connect(this.gain);
+      }),
+    ]);
 
     this.initialized = true;
   }
@@ -49,25 +108,36 @@ export class SynthEngine {
     if (!chord) return;
 
     this.currentChord = name;
+    const sampler = this.currentInstrument === 'piano' ? this.pianoSampler : this.guitarSampler;
+
     if (sustain) {
       this.currentNotes.forEach((note) => {
-        try { this.sampler.triggerRelease(note, toneNow()); } catch {}
+        try {
+          sampler.triggerRelease(note, toneNow());
+        } catch {
+          /* ignore */
+        }
       });
       this.currentNotes = chord.notes;
       chord.notes.forEach((note, i) => {
-        this.sampler.triggerAttack(note, toneNow() + i * 0.016, 0.9 - i * 0.05);
+        sampler.triggerAttack(note, toneNow() + i * 0.016, 0.88 - i * 0.04);
       });
       return;
     }
 
     chord.notes.forEach((note, i) => {
-      this.sampler.triggerAttackRelease(note, 0.18, toneNow() + i * 0.016, 0.9 - i * 0.05);
+      sampler.triggerAttackRelease(note, this.currentInstrument === 'piano' ? 0.9 : 0.18, toneNow() + i * 0.016, 0.9 - i * 0.05);
     });
   }
 
   stopChord(): void {
     this.currentNotes.forEach((note) => {
-      try { this.sampler.triggerRelease(note); } catch {}
+      try {
+        const sampler = this.currentInstrument === 'piano' ? this.pianoSampler : this.guitarSampler;
+        sampler.triggerRelease(note);
+      } catch {
+        /* ignore */
+      }
     });
     this.currentNotes = [];
     this.currentChord = null;
@@ -82,7 +152,8 @@ export class SynthEngine {
   }
 
   dispose(): void {
-    this.sampler?.dispose();
+    this.guitarSampler?.dispose();
+    this.pianoSampler?.dispose();
     this.reverb?.dispose();
     this.gain?.dispose();
     this.filter?.dispose();
