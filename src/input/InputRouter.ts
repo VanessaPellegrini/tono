@@ -2,6 +2,7 @@ export type InputEvent = {
   type: 'chord-select' | 'chord-play' | 'chord-stop';
   chord: string;
   chordIndex?: number;
+  wheelIndex?: number;
   sustain?: boolean;
 };
 
@@ -45,9 +46,9 @@ export class InputRouter {
   }
 
   // Called by HandTracker
-  handleHandChordSelect(chord: string, index: number): void {
+  handleHandChordSelect(chord: string, index: number, wheelIndex = 0): void {
     if (!this.gamepadActive) {
-      this.emit({ type: 'chord-select', chord, chordIndex: index });
+      this.emit({ type: 'chord-select', chord, chordIndex: index, wheelIndex });
     }
   }
 
@@ -61,9 +62,9 @@ export class InputRouter {
     if (!this.gamepadActive) return;
   }
 
-  handleHandStrumEnd(chord: string): void {
+  handleHandStrumEnd(chord: string, wheelIndex = 0): void {
     if (!this.gamepadActive) {
-      this.emit({ type: 'chord-stop', chord });
+      this.emit({ type: 'chord-stop', chord, wheelIndex });
     }
   }
 

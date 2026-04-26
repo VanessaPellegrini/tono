@@ -1,5 +1,5 @@
 import type { SongManager } from '../song/SongManager';
-import { ROOT_NAMES } from '../data/chords';
+import { ROOT_NAMES, transposeNoteName } from '../data/chords';
 import type { HandPointerState } from '../input/HandTracker';
 
 const SOURCE_COLORS: Record<string, { stroke: string; fill: string }> = {
@@ -21,6 +21,7 @@ export class CanvasRenderer {
   private mode: 'free' | 'story' = 'free';
   private inputMode: 'joystick' | 'webcam' = 'joystick';
   private handPointers: HandPointerState[] = [];
+  private wheelShifts = [0, 0];
 
   constructor(canvas: HTMLCanvasElement, songManager: SongManager) {
     this.canvas = canvas;
@@ -61,6 +62,9 @@ export class CanvasRenderer {
 
   setHandPointers(states: HandPointerState[]): void {
     this.handPointers = states;
+    for (const hand of states) {
+      if (hand.visible) this.wheelShifts[hand.wheel] = hand.shift;
+    }
   }
 
   getCurrentChordName(): string | null {
@@ -183,8 +187,8 @@ export class CanvasRenderer {
       const centerY = h * 0.5;
       const wheelRadiusWebcam = Math.min(w, h) * 0.19;
 
-      this.drawChordWheel(ctx, leftX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(0, leftX, centerY, wheelRadiusWebcam));
-      this.drawChordWheel(ctx, rightX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(1, rightX, centerY, wheelRadiusWebcam));
+      this.drawChordWheel(ctx, leftX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(0, leftX, centerY, wheelRadiusWebcam), this.wheelShifts[0]);
+      this.drawChordWheel(ctx, rightX, centerY, wheelRadiusWebcam, null, this.getSelectionForWheel(1, rightX, centerY, wheelRadiusWebcam), this.wheelShifts[1]);
 
       this.drawSideZones(ctx, w, h);
 
@@ -255,10 +259,10 @@ export class CanvasRenderer {
     radius: number,
     currentChord: string | null,
     selectedIndex = this.selectedChordIndex,
+    shift = 0,
   ): void {
     const wedgeAngle = (Math.PI * 2) / ROOT_NAMES.length;
     const start = -Math.PI / 2;
-    const activeRoot = currentChord ? currentChord.replace(/(sus4|7|m)$/, '') : null;
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -288,7 +292,8 @@ export class CanvasRenderer {
       const angle = start + index * wedgeAngle;
       const mid = angle + wedgeAngle / 2;
       const isSelected = index === selectedIndex;
-      const isActive = activeRoot === root;
+      const label = shift !== 0 ? transposeNoteName(root, shift) : root;
+      const isActive = currentChord ? currentChord === label : false;
       const inner = radius * 0.33;
 
       ctx.beginPath();
@@ -318,7 +323,7 @@ export class CanvasRenderer {
       ctx.rotate(mid + Math.PI / 2);
       ctx.font = `${isActive ? 700 : isSelected ? 600 : 500} 15px ui-sans-serif, system-ui, sans-serif`;
       ctx.fillStyle = isActive ? '#fff7f3' : isSelected ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.56)';
-      ctx.fillText(root, 0, 0);
+      ctx.fillText(label, 0, 0);
       ctx.restore();
 
       // Selected quality tag
@@ -331,7 +336,7 @@ export class CanvasRenderer {
         ctx.rotate(mid + Math.PI / 2);
         ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
         ctx.fillStyle = 'rgba(255,255,255,0.24)';
-        ctx.fillText(currentChord.slice(root.length) || 'maj', 0, 0);
+        ctx.fillText(currentChord.slice(label.length) || 'maj', 0, 0);
         ctx.restore();
       }
 
