@@ -2,14 +2,14 @@ import type { NoteName } from '../data/chords';
 import type { ScaleType, DiatonicChord } from '../data/scales';
 import { getDiatonicChords, getScaleLabel } from '../data/scales';
 
-export type InputMode = 'joystick' | 'webcam';
+export type InputMode = 'joystick' | 'dualwheel' | 'webcam';
 export type InstrumentMode = 'guitar' | 'piano';
 
 type Listener = () => void;
 
 class AppState {
-  private inputMode: InputMode = 'joystick';
-  private instrumentMode: InstrumentMode = 'guitar';
+  private inputMode: InputMode = 'dualwheel';
+  private instrumentMode: InstrumentMode = 'piano';
   private selectedChordIndex = 0;
   private currentChordName = 'A';
   private selectedScaleRoot: NoteName = 'C';
@@ -56,6 +56,10 @@ class AppState {
 
   get scaleLabel(): string {
     return getScaleLabel(this.selectedScaleRoot, this.selectedScaleType);
+  }
+
+  get isDualWheel(): boolean {
+    return this.inputMode === 'dualwheel' || this.inputMode === 'webcam';
   }
 
   setMode(mode: InputMode): void {

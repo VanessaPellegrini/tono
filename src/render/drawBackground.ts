@@ -1,10 +1,12 @@
+import type { InputMode } from '../state/AppState';
+
 export function drawBackground(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  isWebcam: boolean,
+  inputMode: InputMode,
 ): void {
-  if (isWebcam) {
+  if (inputMode === 'webcam') {
     ctx.fillStyle = 'rgba(3, 5, 6, 0.25)';
     ctx.fillRect(0, 0, w, h);
     return;
@@ -17,18 +19,20 @@ export function drawBackground(
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < w; x += 60) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, h);
-    ctx.stroke();
-  }
-  for (let y = 0; y < h; y += 60) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
+  if (inputMode === 'joystick') {
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < w; x += 60) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y < h; y += 60) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
   }
 }

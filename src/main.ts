@@ -6,7 +6,7 @@ import { HandTracker } from './input/HandTracker';
 import { InputRouter, type InputEvent } from './input/InputRouter';
 import { SongManager } from './song/SongManager';
 import { CanvasRenderer } from './render/CanvasRenderer';
-import { appState } from './state/AppState';
+import { appState, type InputMode } from './state/AppState';
 import { CIRCLE_OF_FIFTHS, SCALE_TYPES } from './data/scales';
 
 const synth = new SynthEngine();
@@ -15,6 +15,7 @@ const inputRouter = new InputRouter();
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const webcam = document.getElementById('webcam') as HTMLVideoElement;
 const btnJoystick = document.getElementById('btn-joystick') as HTMLButtonElement;
+const btnDualWheel = document.getElementById('btn-dualwheel') as HTMLButtonElement;
 const btnWebcam = document.getElementById('btn-webcam') as HTMLButtonElement;
 const btnGuitar = document.getElementById('btn-guitar') as HTMLButtonElement;
 const btnPiano = document.getElementById('btn-piano') as HTMLButtonElement;
@@ -41,12 +42,12 @@ function handleInput(event: InputEvent): void {
     case 'chord-select':
       renderer.setSelectedChord(event.chordIndex ?? 0);
       renderer.setCurrentChordName(event.chord);
-      if (appState.mode === 'webcam') {
+      if (appState.isDualWheel) {
         playAndFlash(event.chord, true, wheel);
       }
       break;
     case 'chord-play':
-      if (appState.mode === 'webcam') break;
+      if (appState.isDualWheel) break;
       playAndFlash(event.chord, event.sustain ?? false, wheel);
       break;
     case 'chord-stop':
@@ -55,32 +56,29 @@ function handleInput(event: InputEvent): void {
   }
 }
 
-
-
 function updateScaleLabel(): void {
   scaleLabel.textContent = appState.scaleLabel;
 }
 
 function updateDualWheelState(): void {
-  if (appState.mode === 'webcam') {
-    renderer.setDualWheelState({
-      scaleRoot: appState.scaleRoot,
-      scaleType: appState.scaleType,
-      diatonicChords: appState.diatonicChords,
-      selectedChordDegree: appState.chordDegree,
-      scaleLabel: appState.scaleLabel,
-    });
-  }
+  renderer.setDualWheelState({
+    scaleRoot: appState.scaleRoot,
+    scaleType: appState.scaleType,
+    diatonicChords: appState.diatonicChords,
+    selectedChordDegree: appState.chordDegree,
+    scaleLabel: appState.scaleLabel,
+  });
 }
 
-function setActiveMode(mode: 'joystick' | 'webcam'): void {
+function setActiveMode(mode: InputMode): void {
   appState.setMode(mode);
   btnJoystick.classList.toggle('active', mode === 'joystick');
+  btnDualWheel.classList.toggle('active', mode === 'dualwheel');
   btnWebcam.classList.toggle('active', mode === 'webcam');
   inputRouter.setGamepadActive(mode === 'joystick');
   renderer.setInputMode(mode);
 
-  if (mode === 'webcam') {
+  if (appState.isDualWheel) {
     updateDualWheelState();
   } else {
     renderer.setDualWheelState(null);
@@ -120,52 +118,69 @@ function getSegmentAtPoint(px: number, py: number, cx: number, cy: number, radiu
   return Math.min(Math.floor(normalized * segmentCount), segmentCount - 1);
 }
 
-async function enableWebcamMode(): Promise<void> {
-  await synth.ensureReady();
-  if (!handTracker) {
-    handTracker = new HandTracker(webcam, {
-      onChordSelect: (_chord: string, index: number, wheel: number) => {
-        if (appState.mode !== 'webcam') return;
-        if (wheel === 0) {
-          const root = CIRCLE_OF_FIFTHS[index];
-          if (root) {
-            appState.setScaleRoot(root);
-            updateScaleLabel();
-            updateDualWheelState();
-          }
-        } else {
-          appState.setChordDegree(index);
-          updateDualWheelState();
-          const diatonicChord = appState.currentDiatonicChord;
-          if (diatonicChord) {
-            playAndFlash(diatonicChord.name, true, 1);
-          }
-        }
-      },
-      onStrumStart: () => {},
-      onStrumEnd: (chord: string, wheel: number) => inputRouter.handleHandStrumEnd(chord, wheel),
-      onHandMove: (states) => renderer.setHandPointers(states),
-      onShiftChange: () => {},
-      onDebug: () => {},
-    });
-  }
-
-  await handTracker.start();
-  document.body.classList.add('webcam-mode');
-  setActiveMode('webcam');
-}
-
-function enableJoystickMode(): void {
+function stopWebcam(): void {
   handTracker?.stop();
+  handTracker = null;
   renderer.setHandPointers([]);
   renderer.setHoveredScaleIndex(-1);
   renderer.setHoveredChordIndex(-1);
   document.body.classList.remove('webcam-mode');
+}
+
+async function startWebcam(): Promise<void> {
+  await synth.ensureReady();
+  handTracker = new HandTracker(webcam, {
+    onChordSelect: (_chord: string, index: number, wheel: number) => {
+      if (appState.mode !== 'webcam') return;
+      if (wheel === 0) {
+        const root = CIRCLE_OF_FIFTHS[index];
+        if (root) {
+          appState.setScaleRoot(root);
+          updateScaleLabel();
+          updateDualWheelState();
+        }
+      } else {
+        appState.setChordDegree(index);
+        updateDualWheelState();
+        const diatonicChord = appState.currentDiatonicChord;
+        if (diatonicChord) {
+          playAndFlash(diatonicChord.name, true, 1);
+        }
+      }
+    },
+    onStrumStart: () => {},
+    onStrumEnd: (chord: string, wheel: number) => inputRouter.handleHandStrumEnd(chord, wheel),
+    onHandMove: (states) => renderer.setHandPointers(states),
+    onShiftChange: () => {},
+    onDebug: () => {},
+  });
+  await handTracker.start();
+  document.body.classList.add('webcam-mode');
+}
+
+function enableJoystickMode(): void {
+  stopWebcam();
   setActiveMode('joystick');
 }
 
+function enableDualWheelMode(): void {
+  stopWebcam();
+  setActiveMode('dualwheel');
+}
+
+async function enableWebcamMode(): Promise<void> {
+  stopWebcam();
+  setActiveMode('webcam');
+  try {
+    await startWebcam();
+  } catch {
+    document.body.classList.remove('webcam-mode');
+    setActiveMode('dualwheel');
+  }
+}
+
 function handleCanvasPointerMove(event: PointerEvent): void {
-  if (appState.mode !== 'webcam') return;
+  if (!appState.isDualWheel) return;
 
   const scaleGeom = renderer.getScaleWheelGeometry();
   const chordGeom = renderer.getChordWheelGeometry();
@@ -184,7 +199,7 @@ function handleCanvasPointerMove(event: PointerEvent): void {
 function handleCanvasPointerDown(event: PointerEvent): void {
   void synth.ensureReady();
 
-  if (appState.mode === 'webcam') {
+  if (appState.isDualWheel) {
     const scaleGeom = renderer.getScaleWheelGeometry();
     const chordGeom = renderer.getChordWheelGeometry();
 
@@ -223,9 +238,10 @@ function handleCanvasPointerDown(event: PointerEvent): void {
 function initApp(): void {
   void synth.ensureReady();
   renderer = new CanvasRenderer(canvas, songManager);
-  renderer.setInputMode('joystick');
-  setInstrument('guitar');
+  renderer.setInputMode('dualwheel');
+  setInstrument('piano');
   updateScaleLabel();
+  updateDualWheelState();
   gamepadManager = new GamepadManager({
     onChordSelect: (chord, index) => {
       if (appState.mode !== 'joystick') return;
@@ -248,25 +264,19 @@ function initApp(): void {
   gamepadManager.start();
   inputRouter.connectGamepad();
   inputRouter.on(handleInput);
-  setActiveMode('joystick');
+  setActiveMode('dualwheel');
 
   btnJoystick.addEventListener('click', () => enableJoystickMode());
-
+  btnDualWheel.addEventListener('click', () => enableDualWheelMode());
   btnWebcam.addEventListener('click', async () => {
-    try {
-      await enableWebcamMode();
-    } catch {
-      document.body.classList.remove('webcam-mode');
-      setActiveMode('joystick');
-    }
+    await enableWebcamMode();
   });
 
   canvas.addEventListener('pointerdown', handleCanvasPointerDown);
-
   canvas.addEventListener('pointermove', handleCanvasPointerMove);
 
   canvas.addEventListener('pointermove', (event) => {
-    if (!strumStart || strumStart.fired || appState.mode === 'webcam') return;
+    if (!strumStart || strumStart.fired || appState.isDualWheel) return;
 
     const dx = event.clientX - strumStart.x;
     const dy = event.clientY - strumStart.y;

@@ -11,6 +11,7 @@ import { spawnParticles, updateAndDrawParticles } from './particles';
 import type { Particle } from './particles';
 import type { NoteName } from '../data/chords';
 import type { ScaleType, DiatonicChord } from '../data/scales';
+import type { InputMode } from '../state/AppState';
 
 export interface DualWheelState {
   scaleRoot: NoteName;
@@ -31,7 +32,7 @@ export class CanvasRenderer {
   private pulse = 0;
   private particles: Particle[] = [];
   private mode: 'free' | 'story' = 'free';
-  private inputMode: 'joystick' | 'webcam' = 'joystick';
+  private inputMode: InputMode = 'dualwheel';
   private handPointers: HandPointerState[] = [];
   private wheelShifts = [0, 0];
   private hoveredScaleIndex = -1;
@@ -65,14 +66,16 @@ export class CanvasRenderer {
     this.flashAlpha = 0.22;
     this.flashChord = chord ?? null;
     this.pulse = 1;
-    this.particles.push(...spawnParticles(this.canvas.width / 2, this.canvas.height / 2));
+    if (this.inputMode === 'joystick') {
+      this.particles.push(...spawnParticles(this.canvas.width / 2, this.canvas.height / 2));
+    }
   }
 
   setMode(mode: 'free' | 'story'): void {
     this.mode = mode;
   }
 
-  setInputMode(mode: 'joystick' | 'webcam'): void {
+  setInputMode(mode: InputMode): void {
     this.inputMode = mode;
   }
 
@@ -101,7 +104,7 @@ export class CanvasRenderer {
   }
 
   getScaleWheelGeometry(): { cx: number; cy: number; radius: number } | null {
-    if (this.inputMode !== 'webcam') return null;
+    if (this.inputMode !== 'dualwheel' && this.inputMode !== 'webcam') return null;
     const w = this.canvas.width;
     const h = this.canvas.height;
     const leftX = w * 0.3;
@@ -111,7 +114,7 @@ export class CanvasRenderer {
   }
 
   getChordWheelGeometry(): { cx: number; cy: number; radius: number; chordCount: number } | null {
-    if (this.inputMode !== 'webcam') return null;
+    if (this.inputMode !== 'dualwheel' && this.inputMode !== 'webcam') return null;
     const w = this.canvas.width;
     const h = this.canvas.height;
     const rightX = w * 0.7;
@@ -121,7 +124,7 @@ export class CanvasRenderer {
   }
 
   getCurrentChordName(): string | null {
-    if (this.inputMode === 'webcam' && this.dualWheelState) {
+    if ((this.inputMode === 'dualwheel' || this.inputMode === 'webcam') && this.dualWheelState) {
       const chord = this.dualWheelState.diatonicChords[this.dualWheelState.selectedChordDegree];
       return chord?.name ?? null;
     }
@@ -138,24 +141,64 @@ export class CanvasRenderer {
     const wheelX = w * 0.5;
     const wheelY = h * 0.5;
     const wheelRadius = wheelSize * 0.5;
+    const isDualWheel = this.inputMode === 'dualwheel' || this.inputMode === 'webcam';
     const isWebcam = this.inputMode === 'webcam';
 
-    drawBackground(ctx, w, h, isWebcam);
+    drawBackground(ctx, w, h, this.inputMode);
 
-    if (this.pulse > 0 && !isWebcam) {
-      ctx.save();
-      ctx.globalAlpha = this.pulse * 0.2;
-      ctx.strokeStyle = '#f2eadc';
-      ctx.lineWidth = 2 + this.pulse * 2.5;
-      ctx.beginPath();
-      ctx.arc(wheelX, wheelY, wheelRadius + 12 + this.pulse * 8, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-      this.pulse *= 0.9;
-      if (this.pulse < 0.02) this.pulse = 0;
-    }
+    if (isDualWheel) {
+      const leftX = w * 0.3;
+      const rightX = w * 0.7;
+      const centerY = h * 0.5;
+      const leftRadius = Math.min(w, h) * 0.15;
+      const rightRadius = Math.min(w, h) * 0.2;
 
-    if (!isWebcam) {
+      if (isWebcam) ctx.clearRect(0, 0, w, h);
+
+      if (this.connectionAlpha > 0.3) {
+        this.connectionAlpha *= 0.95;
+        if (this.connectionAlpha < 0.3) this.connectionAlpha = 0.3;
+      }
+
+      drawConnection(ctx, leftX + leftRadius, rightX - rightRadius, centerY, this.connectionAlpha);
+
+      if (this.dualWheelState) {
+        drawScaleWheel(
+          ctx, leftX, centerY, leftRadius,
+          this.dualWheelState.scaleRoot,
+          this.hoveredScaleIndex,
+          this.dualWheelState.scaleLabel,
+        );
+
+        const flashRef = { value: this.flashAlpha };
+        drawDiatonicWheel(
+          ctx, rightX, centerY, rightRadius,
+          this.dualWheelState.diatonicChords,
+          this.dualWheelState.selectedChordDegree,
+          this.hoveredChordIndex,
+          this.wheelShifts[1],
+          flashRef,
+        );
+        this.flashAlpha = flashRef.value;
+      }
+
+      if (isWebcam) {
+        drawHandPointers(ctx, w, h, this.handPointers);
+      }
+    } else {
+      if (this.pulse > 0) {
+        ctx.save();
+        ctx.globalAlpha = this.pulse * 0.2;
+        ctx.strokeStyle = '#f2eadc';
+        ctx.lineWidth = 2 + this.pulse * 2.5;
+        ctx.beginPath();
+        ctx.arc(wheelX, wheelY, wheelRadius + 12 + this.pulse * 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        this.pulse *= 0.9;
+        if (this.pulse < 0.02) this.pulse = 0;
+      }
+
       const currentChord = this.mode === 'story'
         ? this.songManager.getCurrentChord()
         : this.currentChordName;
@@ -196,50 +239,11 @@ export class CanvasRenderer {
       this.particles = updateAndDrawParticles(ctx, this.particles);
     }
 
-    if (isWebcam) {
-      ctx.clearRect(0, 0, w, h);
-
-      const leftX = w * 0.3;
-      const rightX = w * 0.7;
-      const centerY = h * 0.5;
-      const leftRadius = Math.min(w, h) * 0.15;
-      const rightRadius = Math.min(w, h) * 0.2;
-
-      if (this.connectionAlpha > 0.3) {
-        this.connectionAlpha *= 0.95;
-        if (this.connectionAlpha < 0.3) this.connectionAlpha = 0.3;
-      }
-
-      drawConnection(ctx, leftX + leftRadius, rightX - rightRadius, centerY, this.connectionAlpha);
-
-      if (this.dualWheelState) {
-        drawScaleWheel(
-          ctx, leftX, centerY, leftRadius,
-          this.dualWheelState.scaleRoot,
-          this.hoveredScaleIndex,
-          this.dualWheelState.scaleLabel,
-        );
-
-        const flashRef = { value: this.flashAlpha };
-        drawDiatonicWheel(
-          ctx, rightX, centerY, rightRadius,
-          this.dualWheelState.diatonicChords,
-          this.dualWheelState.selectedChordDegree,
-          this.hoveredChordIndex,
-          this.wheelShifts[1],
-          flashRef,
-        );
-        this.flashAlpha = flashRef.value;
-      }
-
-      drawHandPointers(ctx, w, h, this.handPointers);
-    }
-
     ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
     ctx.textAlign = 'center';
     ctx.fillText(
-      isWebcam
+      isDualWheel
         ? 'left wheel: select key · right wheel: select chord'
         : 'LS = chord · L2/R2 = b/# · L1/R1 = m/7 · RS hold = sustain',
       w / 2,
