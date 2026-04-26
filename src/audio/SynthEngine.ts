@@ -20,6 +20,23 @@ export class SynthEngine {
     return this.initialized && this.loaded[this.currentInstrument];
   }
 
+  private initPromise: Promise<void> | null = null;
+
+  ensureReady(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
+    if (!this.initPromise) {
+      this.initPromise = this.init().catch((error) => {
+        console.warn('Audio initialization failed:', error);
+      });
+    }
+    return this.initPromise;
+  }
+
+  async withReady(): Promise<boolean> {
+    await this.ensureReady();
+    return this.isReady();
+  }
+
   setInstrument(instrument: 'guitar' | 'piano'): void {
     if (this.currentInstrument === instrument) return;
     this.stopChord();
